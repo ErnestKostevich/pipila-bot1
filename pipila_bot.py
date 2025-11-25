@@ -254,21 +254,67 @@ def search_rag(query: str, n_results: int = 5) -> List[Dict]:
         logger.error(f"Error RAG search: {e}")
         return []
 
-async def generate_rag_response(query: str) -> str:
+# Sistema de memoria de conversación (40 mensajes por usuario)
+conversation_memory = {}
+
+def get_conversation_history(user_id: int) -> List[Dict]:
+    """Obtiene historial de conversación del usuario"""
+    if user_id not in conversation_memory:
+        conversation_memory[user_id] = []
+    return conversation_memory[user_id]
+
+def add_to_conversation(user_id: int, role: str, content: str):
+    """Añade mensaje al historial (máximo 40 mensajes)"""
+    if user_id not in conversation_memory:
+        conversation_memory[user_id] = []
+    
+    conversation_memory[user_id].append({
+        'role': role,
+        'content': content,
+        'timestamp': datetime.now()
+    })
+    
+    # Mantener solo últimos 40 mensajes
+    if len(conversation_memory[user_id]) > 40:
+        conversation_memory[user_id] = conversation_memory[user_id][-40:]
+
+async def generate_rag_response(query: str, user_id: int = None) -> str:
     if not ai_model:
         return "❌ Sistema IA no disponible."
     
     try:
+        # Buscar en documentos
         context_docs = search_rag(query, n_results=5)
+        
+        # Obtener historial de conversación
+        history = get_conversation_history(user_id) if user_id else []
+        
+        # Construir contexto de conversación
+        conversation_context = ""
+        if history and len(history) > 0:
+            recent_history = history[-10:]  # Últimos 10 mensajes
+            conversation_context = "\n\nCONVERSACIÓN PREVIA:\n"
+            for msg in recent_history:
+                role_label = "Usuario" if msg['role'] == 'user' else "PIPILA"
+                conversation_context += f"{role_label}: {msg['content'][:200]}\n"
         
         if not context_docs:
             prompt = f"""Usuario del equipo pregunta: {query}
+{conversation_context}
 
 No hay documentos disponibles. Responde profesionalmente indicando que 
-sería mejor consultar los documentos del equipo para info precisa."""
+sería mejor consultar los documentos del equipo para info precisa.
+Considera la conversación previa si es relevante."""
             
             response = ai_model.generate_content(prompt)
-            return response.text
+            result = response.text
+            
+            # Guardar en memoria
+            if user_id:
+                add_to_conversation(user_id, 'user', query)
+                add_to_conversation(user_id, 'assistant', result)
+            
+            return result
         
         context_text = "\n\n---\n\n".join([
             f"📄 {doc['source']}\n{doc['text']}" 
@@ -279,19 +325,28 @@ sería mejor consultar los documentos del equipo para info precisa."""
 
 DOCUMENTOS:
 {context_text}
+{conversation_context}
 
-PREGUNTA:
+PREGUNTA ACTUAL:
 {query}
 
 INSTRUCCIONES:
 - Usa info de los documentos
+- Considera la conversación previa si es relevante
 - Cita: "Según [documento], ..."
 - Si falta info, dilo claramente
 - Tono profesional y colaborativo
 - Ejemplos prácticos"""
 
         response = ai_model.generate_content(rag_prompt)
-        return response.text
+        result = response.text
+        
+        # Guardar en memoria
+        if user_id:
+            add_to_conversation(user_id, 'user', query)
+            add_to_conversation(user_id, 'assistant', result)
+        
+        return result
         
     except Exception as e:
         logger.error(f"Error RAG: {e}")
@@ -547,6 +602,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /stats - Tus estadísticas
 /team - Ver equipo
 /info - Info del bot
+/clear - Limpiar historial conversación
 
 <b>💡 Ejemplos:</b>
 
@@ -556,7 +612,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <b>💬 Uso directo:</b>
 Escribe sin comandos, responderé
-basándome en documentos."""
+basándome en documentos.
+
+<b>🧠 Memoria:</b>
+Recuerdo últimos 40 mensajes para
+contexto. Usa /clear para reiniciar."""
 
     if is_team:
         text += """
@@ -590,7 +650,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action("typing")
     
     try:
-        response = await generate_rag_response(query)
+        response = await generate_rag_response(query, user_id=user_id)
         storage.save_query(user_id, query, response)
         
         user = storage.get_user(user_id)
@@ -778,6 +838,25 @@ async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Comando /clear - Limpia historial de conversación"""
+    user_id = update.effective_user.id
+    
+    if user_id in conversation_memory:
+        msg_count = len(conversation_memory[user_id])
+        conversation_memory[user_id] = []
+        await update.message.reply_text(
+            f"🧹 <b>Historial limpio</b>\n\n"
+            f"Se borraron {msg_count} mensajes.\n"
+            f"Puedes empezar una nueva conversación.",
+            parse_mode=ParseMode.HTML
+        )
+    else:
+        await update.message.reply_text(
+            "ℹ️ No hay historial que limpiar.\n\n"
+            "Tu conversación ya está vacía."
+        )
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     identify_creator(user)
@@ -827,7 +906,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.chat.send_action("typing")
         
         try:
-            response = await generate_rag_response(text)
+            response = await generate_rag_response(text, user_id=user_id)
             storage.save_query(user_id, text, response)
             
             user_data = storage.get_user(user_id)
@@ -877,6 +956,7 @@ def main():
     application.add_handler(CommandHandler("info", info_command))
     application.add_handler(CommandHandler("reload", reload_command))
     application.add_handler(CommandHandler("grant_team", grant_team_command))
+    application.add_handler(CommandHandler("clear", clear_command))
     
     # Mensajes
     application.add_handler(MessageHandler(
