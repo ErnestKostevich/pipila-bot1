@@ -1,0 +1,133 @@
+services:
+  - type: web
+    name: pipila-bot
+    env: python
+    plan: free
+    region: frankfurt
+    buildCommand: |
+      pip install -r requirements_pipila.txt
+      chmod +x download_docs.sh
+      bash download_docs.sh
+    startCommand: python pipila_bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pipila_db
+          property: connectionString
+
+databases:
+  - name: pipila_db
+    databaseName: pipila
+    user: pipila_user
+```
+
+4. **Commit new file**
+
+---
+
+## ✅ **ШАГ 4: Деплой на Render**
+
+### **Если бот ещё НЕ создан:**
+
+1. Открой https://dashboard.render.com/
+2. Нажми **"New +"** → **"Web Service"**
+3. Подключи GitHub → выбери **pipila-bot1**
+4. Render сам прочитает `render.yaml`!
+5. Добавь переменные окружения:
+   - `BOT_TOKEN` = (токен от @BotFather)
+   - `GEMINI_API_KEY` = (ключ Gemini)
+6. Нажми **"Create Web Service"**
+
+### **Если бот УЖЕ создан:**
+
+1. Зайди в Render Dashboard
+2. Найди **pipila-bot**
+3. Settings → Build & Deploy
+4. Build Command: 
+```
+   pip install -r requirements_pipila.txt && chmod +x download_docs.sh && bash download_docs.sh
+```
+5. Нажми **"Save Changes"**
+6. Нажми **"Manual Deploy"** → **"Deploy latest commit"**
+
+---
+
+## ✅ **ШАГ 5: Проверь логи**
+
+Через 10-15 минут:
+
+1. Открой **Logs** в Render
+2. Должно быть:
+```
+==> Cloning from https://github.com/ErnestKostevich/pipila-bot1...
+==> Installing dependencies...
+📥 Descargando documentos de Google Drive...
+🔄 Descargando carpeta completa...
+From: https://drive.google.com/...
+To: documents/...
+✅ Documentos descargados!
+-rw-r--r-- 1 file1.pdf
+-rw-r--r-- 1 file2.pdf
+...
+==> Starting bot...
+📚 Cargando documentos...
+✅ Cargado: file1.pdf (15 chunks)
+✅ Cargado: file2.pdf (10 chunks)
+...
+✅ 150 documentos cargados
+🤖 AI: Gemini 2.0 Flash + RAG (ChromaDB)
+🗄️ DB: PostgreSQL ✓
+```
+
+**Если видишь это - РАБОТАЕТ!** 🎉
+
+---
+
+## ⚠️ **ЕСЛИ ОШИБКА "Access denied"**
+
+Google Drive может блокировать скачивание.
+
+### **Решение:**
+
+1. Открой https://drive.google.com/drive/folders/1vK_GFk3M3vA4vQksZGnGCM027sv39Rz4
+2. **Правый клик** на папку
+3. **"Поделиться"** (Share)
+4. Нажми **"Изменить"** (Change)
+5. Выбери **"Все, у кого есть ссылка"** (Anyone with the link)
+6. Права: **"Читатель"** (Viewer)
+7. **Готово**
+
+Потом в Render нажми **"Manual Deploy"** снова!
+
+---
+
+## 🎯 **КРАТКАЯ ИНСТРУКЦИЯ:**
+```
+✅ 1. Создай download_docs.sh (код выше)
+✅ 2. Добавь gdown в requirements_pipila.txt
+✅ 3. Создай render.yaml
+✅ 4. Commit всё
+✅ 5. Создай Web Service на Render
+✅ 6. Добавь BOT_TOKEN и GEMINI_API_KEY
+✅ 7. Жди 10-15 минут
+✅ 8. Проверь логи
+✅ 9. Тестируй: /start, /docs
+```
+
+---
+
+## 📊 **ЧТО ПРОИСХОДИТ ПРИ ДЕПЛОЕ:**
+```
+1. Render клонирует GitHub
+2. Устанавливает библиотеки
+3. Запускает download_docs.sh
+   └─> Скачивает файлы с Google Drive
+   └─> Сохраняет в documents/
+4. Запускает pipila_bot.py
+   └─> Читает documents/
+   └─> Загружает в ChromaDB
+5. БОТ ГОТОВ! 🎉
