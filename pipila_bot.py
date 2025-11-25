@@ -24,7 +24,6 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 # Bibliotecas para RAG
 import chromadb
-from chromadb.config import Settings
 import PyPDF2
 import docx
 
@@ -106,10 +105,7 @@ else:
 # CHROMADB - RAG
 # ============================================================================
 
-chroma_client = chromadb.Client(Settings(
-    chroma_db_impl="duckdb+parquet",
-    persist_directory="./chroma_db"
-))
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 try:
     collection = chroma_client.get_or_create_collection(
