@@ -6,8 +6,7 @@ services:
     region: frankfurt
     buildCommand: |
       pip install -r requirements_pipila.txt
-      chmod +x download_docs.sh
-      bash download_docs.sh
+      python download_gdrive_recursive.py
     startCommand: python pipila_bot.py
     envVars:
       - key: BOT_TOKEN
