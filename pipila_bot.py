@@ -10,6 +10,7 @@ import os
 import json
 import logging
 import asyncio
+import time
 from datetime import datetime
 from typing import List, Dict
 from pathlib import Path
@@ -64,7 +65,8 @@ if GEMINI_API_KEY:
             "temperature": 0.7,
             "top_p": 0.95,
             "top_k": 40,
-            "max_output_tokens": 2048,
+            "max_output_tokens": 1024,  # Уменьшен для экономии токенов
+            "candidate_count": 1,
         },
         system_instruction="""Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
 
@@ -82,6 +84,7 @@ REGLAS IMPORTANTES:
 4. Admite si no sabes algo - la honestidad es clave
 5. Prioriza información de los documentos del equipo
 6. Usa ejemplos concretos y prácticos
+7. Respuestas CONCISAS (máximo 500 palabras)
 
 FORMATO:
 - Emojis profesionales con moderación (📊 💰 📈 ✅ ⚠️ 📄)
@@ -96,7 +99,7 @@ LÍMITES:
 - NO compartas info fuera del equipo"""
     )
     
-    logger.info("✅ Gemini 2.0 Flash configurado")
+    logger.info("✅ Gemini 2.0 Flash configurado (limite: 1024 tokens)")
 else:
     ai_model = None
     logger.error("❌ GEMINI_API_KEY no configurado")
@@ -278,31 +281,63 @@ async def generate_rag_response(query: str, user_id: int = None) -> str:
     if not ai_model:
         return "❌ Sistema IA no disponible."
     
-    try:
-        # Buscar en documentos
-        context_docs = search_rag(query, n_results=5)
-        
-        # Obtener historial de conversación
-        history = get_conversation_history(user_id) if user_id else []
-        
-        # Construir contexto de conversación
-        conversation_context = ""
-        if history and len(history) > 0:
-            recent_history = history[-10:]  # Últimos 10 mensajes
-            conversation_context = "\n\nCONVERSACIÓN PREVIA:\n"
-            for msg in recent_history:
-                role_label = "Usuario" if msg['role'] == 'user' else "PIPILA"
-                conversation_context += f"{role_label}: {msg['content'][:200]}\n"
-        
-        if not context_docs:
-            prompt = f"""Usuario del equipo pregunta: {query}
+    # Retry logic для rate limits
+    max_retries = 3
+    retry_delay = 2  # секунды
+    
+    for attempt in range(max_retries):
+        try:
+            # Buscar en documentos
+            context_docs = search_rag(query, n_results=5)
+            
+            # Obtener historial de conversación
+            history = get_conversation_history(user_id) if user_id else []
+            
+            # Construir contexto de conversación (сокращённый для экономии токенов)
+            conversation_context = ""
+            if history and len(history) > 0:
+                recent_history = history[-5:]  # Только последние 5 сообщений
+                conversation_context = "\n\nCONTEXTO:\n"
+                for msg in recent_history:
+                    role_label = "U" if msg['role'] == 'user' else "A"
+                    conversation_context += f"{role_label}: {msg['content'][:100]}\n"
+            
+            if not context_docs:
+                prompt = f"""Pregunta: {query[:500]}
 {conversation_context}
 
-No hay documentos disponibles. Responde profesionalmente indicando que 
-sería mejor consultar los documentos del equipo para info precisa.
-Considera la conversación previa si es relevante."""
+Sin documentos. Responde breve (máx 200 palabras) indicando consultar docs del equipo."""
+                
+                response = ai_model.generate_content(prompt)
+                result = response.text
+                
+                # Guardar en memoria
+                if user_id:
+                    add_to_conversation(user_id, 'user', query)
+                    add_to_conversation(user_id, 'assistant', result)
+                
+                return result
             
-            response = ai_model.generate_content(prompt)
+            # Limitar contexto para no exceder токены
+            context_text = "\n\n---\n\n".join([
+                f"📄 {doc['source']}\n{doc['text'][:800]}"  # Máximo 800 chars por doc
+                for doc in context_docs[:3]  # Solo top 3 docs
+            ])
+            
+            rag_prompt = f"""Docs equipo Oscar Casco:
+
+{context_text}
+{conversation_context}
+
+PREGUNTA: {query[:500]}
+
+INSTRUCCIONES:
+- Respuesta CONCISA (máx 300 palabras)
+- Cita docs: "Según [nombre]..."
+- Si falta info, dilo
+- Ejemplos prácticos"""
+
+            response = ai_model.generate_content(rag_prompt)
             result = response.text
             
             # Guardar en memoria
@@ -311,42 +346,26 @@ Considera la conversación previa si es relevante."""
                 add_to_conversation(user_id, 'assistant', result)
             
             return result
-        
-        context_text = "\n\n---\n\n".join([
-            f"📄 {doc['source']}\n{doc['text']}" 
-            for doc in context_docs
-        ])
-        
-        rag_prompt = f"""Basándote en documentos del equipo de Oscar Casco, responde:
-
-DOCUMENTOS:
-{context_text}
-{conversation_context}
-
-PREGUNTA ACTUAL:
-{query}
-
-INSTRUCCIONES:
-- Usa info de los documentos
-- Considera la conversación previa si es relevante
-- Cita: "Según [documento], ..."
-- Si falta info, dilo claramente
-- Tono profesional y colaborativo
-- Ejemplos prácticos"""
-
-        response = ai_model.generate_content(rag_prompt)
-        result = response.text
-        
-        # Guardar en memoria
-        if user_id:
-            add_to_conversation(user_id, 'user', query)
-            add_to_conversation(user_id, 'assistant', result)
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error RAG: {e}")
-        return f"😔 Error: {str(e)}\n\nIntenta de nuevo o usa /help"
+            
+        except Exception as e:
+            error_str = str(e)
+            
+            # Rate limit error
+            if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"⚠️ Rate limit. Esperando {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"❌ Rate limit después de {max_retries} intentos")
+                    return "⏳ Sistema temporalmente ocupado. Por favor, espera 30 segundos e intenta de nuevo."
+            
+            # Other errors
+            logger.error(f"Error RAG: {e}")
+            return f"😔 Error del sistema. Usa /help o intenta más tarde."
+    
+    return "⏳ Sistema ocupado. Intenta en 1 minuto."
 
 # ============================================================================
 # BASE DE DATOS
