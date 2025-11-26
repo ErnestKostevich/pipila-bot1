@@ -5,7 +5,7 @@
 Bot con RAG (Retrieval Augmented Generation) para equipo financiero
 Creado por Ernest Kostevich para Oscar Casco
 
-VERSION: 2.0 - NUEVO GEMINI API
+VERSION: 2.1 - FIXED GEMINI API (синхронизировано с AI DISCO BOT)
 """
 
 import os
@@ -21,8 +21,8 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from telegram.constants import ParseMode
 
-# ✅ NUEVO GEMINI API
-from google import genai
+# ✅ ИСПРАВЛЕНО: Используем тот же API, что работает в AI DISCO BOT
+import google.generativeai as genai
 
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, BigInteger
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -57,24 +57,73 @@ if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN no encontrado")
 
 # ============================================================================
-# GEMINI AI - NUEVO API
+# GEMINI AI - FIXED API (como en AI DISCO BOT)
 # ============================================================================
 
-gemini_client = None
-ai_available = False
-
+# ✅ ИСПРАВЛЕНО: Конфигурация как в работающем боте
 if GEMINI_API_KEY:
     try:
-        # ✅ NUEVO: Client en lugar de configure
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        # Конфигурация модели
+        generation_config = {
+            "temperature": 1,
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_output_tokens": 1024,  # Оптимизировано для токенов
+        }
+        
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        
+        # System instruction для PIPILA
+        system_instruction = """Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
+
+IDENTIDAD:
+- Asistente profesional para TODO el equipo de Oscar Casco
+- Ayudas a todos los miembros por igual con dedicación
+- Experto en: DVAG, Generali, Badenia, Advocard
+- Metodología: Basada en documentos y enseñanzas de Oscar Casco
+- Tono: Profesional, claro, cercano y colaborativo
+
+REGLAS:
+1. Responde SIEMPRE en español
+2. Cita documentos específicos cuando uses su información
+3. Admite si no sabes algo
+4. Respuestas CONCISAS (máximo 300 palabras)
+5. Usa ejemplos prácticos
+
+FORMATO:
+- Emojis profesionales con moderación (📊 💰 📈 ✅)
+- Citas: "Según el documento [nombre], ..."
+
+LÍMITES:
+- NO inventes datos
+- NO prometas rendimientos garantizados"""
+        
+        # ✅ Создаём модель
+        model = genai.GenerativeModel(
+            model_name='gemini-2.0-flash-exp',
+            generation_config=generation_config,
+            safety_settings=safety_settings,
+            system_instruction=system_instruction
+        )
+        
         ai_available = True
-        logger.info("✅ Gemini 2.0 Flash (NEW API) configurado")
+        logger.info("✅ Gemini 2.0 Flash configurado (limite: 1024 tokens)")
+        
     except Exception as e:
         logger.error(f"❌ Error Gemini: {e}")
-        gemini_client = None
+        model = None
         ai_available = False
 else:
     logger.error("❌ GEMINI_API_KEY no configurado")
+    model = None
+    ai_available = False
 
 # ============================================================================
 # CHROMADB - RAG
@@ -142,7 +191,7 @@ def load_documents_to_rag(documents_folder: str = "./documents") -> int:
         return 0
     
     if not os.path.exists(documents_folder):
-        logger.warning(f"Carpeta {documents_folder} no existe")
+        logger.warning(f"❌ Carpeta {documents_folder} no existe")
         return 0
     
     documents_loaded = 0
@@ -249,13 +298,27 @@ def add_to_conversation(user_id: int, role: str, content: str):
     if len(conversation_memory[user_id]) > 40:
         conversation_memory[user_id] = conversation_memory[user_id][-40:]
 
+# ✅ Chat sessions para cada usuario (как в AI DISCO BOT)
+chat_sessions = {}
+
+def get_chat_session(user_id: int):
+    """Получает chat session для пользователя"""
+    if user_id not in chat_sessions:
+        chat_sessions[user_id] = model.start_chat(history=[])
+    return chat_sessions[user_id]
+
+def clear_chat_session(user_id: int):
+    """Очищает chat session"""
+    if user_id in chat_sessions:
+        del chat_sessions[user_id]
+
 async def generate_rag_response(query: str, user_id: int = None) -> str:
-    """✅ NUEVA VERSIÓN con Gemini Client API"""
+    """✅ FIXED: Генерация с правильным API"""
     
-    if not gemini_client or not ai_available:
+    if not model or not ai_available:
         return "❌ Sistema IA no disponible."
     
-    # Retry logic para rate limits
+    # Retry logic для rate limits (как в AI DISCO BOT)
     max_retries = 3
     retry_delay = 2
     
@@ -267,54 +330,25 @@ async def generate_rag_response(query: str, user_id: int = None) -> str:
             # Obtener historial de conversación
             history = get_conversation_history(user_id) if user_id else []
             
-            # Construir contexto de conversación (sокращённый)
+            # Construir contexto de conversación
             conversation_context = ""
             if history and len(history) > 0:
                 recent_history = history[-5:]
-                conversation_context = "\n\nCONTEXTO:\n"
+                conversation_context = "\n\nCONTEXTO CONVERSACIÓN:\n"
                 for msg in recent_history:
-                    role_label = "U" if msg['role'] == 'user' else "A"
+                    role_label = "Usuario" if msg['role'] == 'user' else "Asistente"
                     conversation_context += f"{role_label}: {msg['content'][:100]}\n"
             
-            # System instruction
-            system_instruction = """Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
-
-IDENTIDAD:
-- Asistente profesional para TODO el equipo de Oscar Casco
-- Ayudas a todos los miembros por igual con dedicación
-- Experto en: DVAG, Generali, Badenia, Advocard
-- Metodología: Basada en documentos y enseñanzas de Oscar Casco
-- Tono: Profesional, claro, cercano y colaborativo
-
-REGLAS:
-1. Responde SIEMPRE en español
-2. Cita documentos específicos cuando uses su información
-3. Admite si no sabes algo
-4. Respuestas CONCISAS (máximo 300 palabras)
-5. Usa ejemplos prácticos
-
-FORMATO:
-- Emojis profesionales con moderación (📊 💰 📈 ✅)
-- Citas: "Según el documento [nombre], ..."
-
-LÍMITES:
-- NO inventes datos
-- NO prometas rendimientos garantizados"""
+            # ✅ USAR CHAT SESSION (como в AI DISCO BOT)
+            chat = get_chat_session(user_id) if user_id else model.start_chat(history=[])
             
             if not context_docs:
-                prompt = f"""{system_instruction}
-
-Pregunta: {query[:500]}
+                prompt = f"""Pregunta: {query[:500]}
 {conversation_context}
 
-Sin documentos. Responde breve (máx 200 palabras) indicando consultar docs del equipo."""
+Sin documentos disponibles. Responde brevemente (máx 200 palabras) indicando que deberían consultar los documentos del equipo o contactar directamente."""
                 
-                # ✅ NUEVO API: generate_content
-                response = gemini_client.models.generate_content(
-                    model='gemini-2.0-flash-exp',
-                    contents=prompt
-                )
-                
+                response = chat.send_message(prompt)
                 result = response.text
                 
                 if user_id:
@@ -323,15 +357,13 @@ Sin documentos. Responde breve (máx 200 palabras) indicando consultar docs del 
                 
                 return result
             
-            # Limitar contexto
+            # Construir contexto con documentos
             context_text = "\n\n---\n\n".join([
-                f"📄 {doc['source']}\n{doc['text'][:800]}"
+                f"📄 Documento: {doc['source']}\n{doc['text'][:800]}"
                 for doc in context_docs[:3]
             ])
             
-            rag_prompt = f"""{system_instruction}
-
-Docs equipo Oscar Casco:
+            rag_prompt = f"""DOCUMENTOS EQUIPO OSCAR CASCO:
 
 {context_text}
 {conversation_context}
@@ -340,16 +372,12 @@ PREGUNTA: {query[:500]}
 
 INSTRUCCIONES:
 - Respuesta CONCISA (máx 300 palabras)
-- Cita docs: "Según [nombre]..."
-- Si falta info, dilo
-- Ejemplos prácticos"""
+- Cita documentos: "Según [nombre del documento]..."
+- Si falta información, indícalo claramente
+- Ejemplos prácticos cuando sea posible"""
 
-            # ✅ NUEVO API: generate_content
-            response = gemini_client.models.generate_content(
-                model='gemini-2.0-flash-exp',
-                contents=rag_prompt
-            )
-            
+            # ✅ Генерация через chat session
+            response = chat.send_message(rag_prompt)
             result = response.text
             
             if user_id:
@@ -409,7 +437,7 @@ Session = None
 
 if DATABASE_URL:
     try:
-        engine = create_engine(DATABASE_URL, echo=False)
+        engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
         logger.info("✅ PostgreSQL OK")
@@ -741,7 +769,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>🤖 Sistema:</b>
 • Docs: {doc_count} chunks
 • Uptime: {uptime.days}d {uptime.seconds//3600}h
-• AI: Gemini 2.0 (NEW API) ✅
+• AI: Gemini 2.0 Flash ✅
+• Tokens: 1024 (optimizado)
 • DB: {'PostgreSQL ✅' if engine else 'JSON ✅'}
 
 <b>🚀 Estado:</b> 🟢 Online"""
@@ -779,11 +808,11 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 2.0 (NEW API)
+<b>📖 Versión:</b> 2.1 (FIXED API)
 
 <b>🧠 Tech:</b>
 • RAG + ChromaDB
-• Gemini 2.0 Flash (NEW API)
+• Gemini 2.0 Flash (FIXED)
 • PostgreSQL
 • Telegram Bot API 21.5
 
@@ -868,20 +897,21 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /clear - Limpia historial de conversación"""
     user_id = update.effective_user.id
     
+    # Limpiar memoria de conversación
+    msg_count = 0
     if user_id in conversation_memory:
         msg_count = len(conversation_memory[user_id])
         conversation_memory[user_id] = []
-        await update.message.reply_text(
-            f"🧹 <b>Historial limpio</b>\n\n"
-            f"Se borraron {msg_count} mensajes.\n"
-            f"Puedes empezar una nueva conversación.",
-            parse_mode=ParseMode.HTML
-        )
-    else:
-        await update.message.reply_text(
-            "ℹ️ No hay historial que limpiar.\n\n"
-            "Tu conversación ya está vacía."
-        )
+    
+    # Limpiar chat session
+    clear_chat_session(user_id)
+    
+    await update.message.reply_text(
+        f"🧹 <b>Historial limpio</b>\n\n"
+        f"Se borraron {msg_count} mensajes.\n"
+        f"Puedes empezar una nueva conversación.",
+        parse_mode=ParseMode.HTML
+    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -992,7 +1022,7 @@ def main():
     
     logger.info("=" * 60)
     logger.info("✅ PIPILA iniciado")
-    logger.info(f"🤖 AI: Gemini 2.0 (NEW API)")
+    logger.info(f"🤖 AI: Gemini 2.0 Flash (FIXED - como AI DISCO BOT)")
     logger.info(f"📚 Docs: {docs_loaded}")
     logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL ✅' if engine else 'JSON ✅'}")
