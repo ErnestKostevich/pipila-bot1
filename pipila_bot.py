@@ -84,15 +84,15 @@ Responde SIEMPRE en español. Sé profesional, claro y conciso (máximo 300 pala
 Si tienes documentos en el contexto, cítalos: "Según el documento [nombre]..."
 Si no tienes información, admítelo claramente."""
 
-# ✅ Создаём модель ТОЧНО ТАК ЖЕ как в AI DISCO BOT
+# ✅ Используем стабильную модель gemini-1.5-flash (не experimental)
 model = genai.GenerativeModel(
-    model_name='gemini-2.0-flash-exp',
+    model_name='gemini-1.5-flash',
     generation_config=generation_config,
     safety_settings=safety_settings,
     system_instruction=system_instruction
 )
 
-logger.info("✅ Gemini 2.0 Flash configurado (limite: 1024 tokens)")
+logger.info("✅ Gemini 1.5 Flash configurado (limite: 1024 tokens)")
 
 # ============================================================================
 # CHROMADB - RAG
@@ -772,7 +772,7 @@ def main():
     
     logger.info("=" * 60)
     logger.info("✅ PIPILA iniciado")
-    logger.info(f"🤖 AI: Gemini 2.0 Flash (ULTRA SIMPLE)")
+    logger.info(f"🤖 AI: Gemini 1.5 Flash (ULTRA SIMPLE)")
     logger.info(f"📚 Docs: {docs_loaded}")
     logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
