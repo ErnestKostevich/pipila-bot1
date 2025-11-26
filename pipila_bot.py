@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🤖 PIPILA - Asistente Financiero Oscar Casco y Equipo
-Bot con RAG (Retrieval Augmented Generation) para equipo financiero
-Creado por Ernest Kostevich para Oscar Casco
-
-VERSION: 2.1 - FIXED GEMINI API (синхронизировано с AI DISCO BOT)
+🤖 PIPILA - Asistente Financiero Oscar Casco
+VERSION: 2.2 - ULTRA SIMPLE (копия рабочего кода AI DISCO BOT)
 """
 
 import os
 import json
 import logging
 import asyncio
-import time
 from datetime import datetime
 from typing import List, Dict
 from pathlib import Path
@@ -21,32 +17,29 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from telegram.constants import ParseMode
 
-# ✅ ИСПРАВЛЕНО: Используем тот же API, что работает в AI DISCO BOT
+# ✅ ТОЧНО ТАК ЖЕ как в AI DISCO BOT
 import google.generativeai as genai
 
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, BigInteger
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Bibliotecas para RAG
+# RAG
 import chromadb
 import PyPDF2
 import docx
 
 # ============================================================================
-# CONFIGURACIÓN
+# КОНФИГУРАЦИЯ
 # ============================================================================
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 DATABASE_URL = os.getenv('DATABASE_URL')
 
-# Creador del bot
 CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
-
 BOT_START_TIME = datetime.now()
 
-# Configuración de logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
@@ -54,76 +47,52 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN no encontrado")
+    raise ValueError("❌ BOT_TOKEN не найден")
 
 # ============================================================================
-# GEMINI AI - FIXED API (como en AI DISCO BOT)
+# GEMINI AI - КОПИЯ AI DISCO BOT (100% РАБОЧИЙ КОД)
 # ============================================================================
 
-# ✅ ИСПРАВЛЕНО: Конфигурация как в работающем боте
-if GEMINI_API_KEY:
-    try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # Конфигурация модели
-        generation_config = {
-            "temperature": 1,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 1024,  # Оптимизировано для токенов
-        }
-        
-        safety_settings = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-        
-        # System instruction для PIPILA
-        system_instruction = """Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
+# ✅ ТОЧНО ТАК ЖЕ как в AI DISCO BOT
+genai.configure(api_key=GEMINI_API_KEY)
 
-IDENTIDAD:
-- Asistente profesional para TODO el equipo de Oscar Casco
-- Ayudas a todos los miembros por igual con dedicación
-- Experto en: DVAG, Generali, Badenia, Advocard
-- Metodología: Basada en documentos y enseñanzas de Oscar Casco
-- Tono: Profesional, claro, cercano y colaborativo
+generation_config = {
+    "temperature": 1,
+    "top_p": 0.95,
+    "top_k": 40,
+    "max_output_tokens": 1024,  # Меньше токенов = меньше нагрузка
+}
 
-REGLAS:
-1. Responde SIEMPRE en español
-2. Cita documentos específicos cuando uses su información
-3. Admite si no sabes algo
-4. Respuestas CONCISAS (máximo 300 palabras)
-5. Usa ejemplos prácticos
+safety_settings = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+]
 
-FORMATO:
-- Emojis profesionales con moderación (📊 💰 📈 ✅)
-- Citas: "Según el documento [nombre], ..."
+# ✅ ТОЧНО ТАК ЖЕ как в AI DISCO BOT - простая system instruction
+system_instruction = """Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
 
-LÍMITES:
-- NO inventes datos
-- NO prometas rendimientos garantizados"""
-        
-        # ✅ Создаём модель
-        model = genai.GenerativeModel(
-            model_name='gemini-2.0-flash-exp',
-            generation_config=generation_config,
-            safety_settings=safety_settings,
-            system_instruction=system_instruction
-        )
-        
-        ai_available = True
-        logger.info("✅ Gemini 2.0 Flash configurado (limite: 1024 tokens)")
-        
-    except Exception as e:
-        logger.error(f"❌ Error Gemini: {e}")
-        model = None
-        ai_available = False
-else:
-    logger.error("❌ GEMINI_API_KEY no configurado")
-    model = None
-    ai_available = False
+Responde SIEMPRE en español. Sé profesional, claro y conciso (máximo 300 palabras).
+
+Áreas de expertise:
+- DVAG
+- Generali  
+- Badenia
+- Advocard
+
+Si tienes documentos en el contexto, cítalos: "Según el documento [nombre]..."
+Si no tienes información, admítelo claramente."""
+
+# ✅ Создаём модель ТОЧНО ТАК ЖЕ как в AI DISCO BOT
+model = genai.GenerativeModel(
+    model_name='gemini-2.0-flash-exp',
+    generation_config=generation_config,
+    safety_settings=safety_settings,
+    system_instruction=system_instruction
+)
+
+logger.info("✅ Gemini 2.0 Flash configurado (limite: 1024 tokens)")
 
 # ============================================================================
 # CHROMADB - RAG
@@ -142,7 +111,7 @@ except Exception as e:
     collection = None
 
 # ============================================================================
-# FUNCIONES RAG
+# RAG FUNCTIONS
 # ============================================================================
 
 def extract_text_from_pdf(file_path: str) -> str:
@@ -247,7 +216,8 @@ def load_documents_to_rag(documents_folder: str = "./documents") -> int:
     logger.info(f"📚 Total: {documents_loaded} docs, {total_chunks} chunks")
     return documents_loaded
 
-def search_rag(query: str, n_results: int = 5) -> List[Dict]:
+def search_rag(query: str, n_results: int = 3) -> List[Dict]:
+    """Búsqueda en documentos - máximo 3 resultados para no sobrecargar"""
     if not collection:
         return []
     
@@ -264,8 +234,7 @@ def search_rag(query: str, n_results: int = 5) -> List[Dict]:
                 context_docs.append({
                     'text': doc,
                     'source': metadata.get('source', 'Unknown'),
-                    'chunk': metadata.get('chunk', 0),
-                    'relevance': 1 - (i * 0.15)
+                    'chunk': metadata.get('chunk', 0)
                 })
         
         return context_docs
@@ -274,31 +243,7 @@ def search_rag(query: str, n_results: int = 5) -> List[Dict]:
         logger.error(f"Error RAG search: {e}")
         return []
 
-# Sistema de memoria de conversación (40 mensajes por usuario)
-conversation_memory = {}
-
-def get_conversation_history(user_id: int) -> List[Dict]:
-    """Obtiene historial de conversación del usuario"""
-    if user_id not in conversation_memory:
-        conversation_memory[user_id] = []
-    return conversation_memory[user_id]
-
-def add_to_conversation(user_id: int, role: str, content: str):
-    """Añade mensaje al historial (máximo 40 mensajes)"""
-    if user_id not in conversation_memory:
-        conversation_memory[user_id] = []
-    
-    conversation_memory[user_id].append({
-        'role': role,
-        'content': content,
-        'timestamp': datetime.now()
-    })
-    
-    # Mantener solo últimos 40 mensajes
-    if len(conversation_memory[user_id]) > 40:
-        conversation_memory[user_id] = conversation_memory[user_id][-40:]
-
-# ✅ Chat sessions para cada usuario (как в AI DISCO BOT)
+# ✅ Chat sessions - ТОЧНО ТАК ЖЕ как в AI DISCO BOT
 chat_sessions = {}
 
 def get_chat_session(user_id: int):
@@ -312,102 +257,50 @@ def clear_chat_session(user_id: int):
     if user_id in chat_sessions:
         del chat_sessions[user_id]
 
+# ✅ УПРОЩЁННАЯ генерация - минимум промптов, максимум эффективности
 async def generate_rag_response(query: str, user_id: int = None) -> str:
-    """✅ FIXED: Генерация с правильным API"""
+    """
+    ULTRA SIMPLE - копия AI DISCO BOT подхода
+    Без retry logic пока - сначала проверим что вообще работает
+    """
     
-    if not model or not ai_available:
-        return "❌ Sistema IA no disponible."
-    
-    # Retry logic для rate limits (как в AI DISCO BOT)
-    max_retries = 3
-    retry_delay = 2
-    
-    for attempt in range(max_retries):
-        try:
-            # Buscar en documentos
-            context_docs = search_rag(query, n_results=5)
-            
-            # Obtener historial de conversación
-            history = get_conversation_history(user_id) if user_id else []
-            
-            # Construir contexto de conversación
-            conversation_context = ""
-            if history and len(history) > 0:
-                recent_history = history[-5:]
-                conversation_context = "\n\nCONTEXTO CONVERSACIÓN:\n"
-                for msg in recent_history:
-                    role_label = "Usuario" if msg['role'] == 'user' else "Asistente"
-                    conversation_context += f"{role_label}: {msg['content'][:100]}\n"
-            
-            # ✅ USAR CHAT SESSION (como в AI DISCO BOT)
-            chat = get_chat_session(user_id) if user_id else model.start_chat(history=[])
-            
-            if not context_docs:
-                prompt = f"""Pregunta: {query[:500]}
-{conversation_context}
-
-Sin documentos disponibles. Responde brevemente (máx 200 palabras) indicando que deberían consultar los documentos del equipo o contactar directamente."""
-                
-                response = chat.send_message(prompt)
-                result = response.text
-                
-                if user_id:
-                    add_to_conversation(user_id, 'user', query)
-                    add_to_conversation(user_id, 'assistant', result)
-                
-                return result
-            
-            # Construir contexto con documentos
-            context_text = "\n\n---\n\n".join([
-                f"📄 Documento: {doc['source']}\n{doc['text'][:800]}"
-                for doc in context_docs[:3]
+    try:
+        # Получаем chat session (как в AI DISCO BOT)
+        chat = get_chat_session(user_id) if user_id else model.start_chat(history=[])
+        
+        # Ищем в документах (максимум 3 для экономии)
+        context_docs = search_rag(query, n_results=3)
+        
+        if context_docs:
+            # Простой контекст
+            context_text = "\n\n".join([
+                f"📄 {doc['source']}: {doc['text'][:500]}"
+                for doc in context_docs[:2]  # Только 2 документа
             ])
             
-            rag_prompt = f"""DOCUMENTOS EQUIPO OSCAR CASCO:
+            prompt = f"""DOCUMENTOS:
 
 {context_text}
-{conversation_context}
 
-PREGUNTA: {query[:500]}
+PREGUNTA: {query[:300]}
 
-INSTRUCCIONES:
-- Respuesta CONCISA (máx 300 palabras)
-- Cita documentos: "Según [nombre del documento]..."
-- Si falta información, indícalo claramente
-- Ejemplos prácticos cuando sea posible"""
+Responde breve (máx 200 palabras), citando documentos."""
+        else:
+            # Без документов - ещё короче
+            prompt = f"""PREGUNTA: {query[:300]}
 
-            # ✅ Генерация через chat session
-            response = chat.send_message(rag_prompt)
-            result = response.text
-            
-            if user_id:
-                add_to_conversation(user_id, 'user', query)
-                add_to_conversation(user_id, 'assistant', result)
-            
-            return result
-            
-        except Exception as e:
-            error_str = str(e)
-            
-            # Rate limit error
-            if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
-                if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(f"⚠️ Rate limit. Esperando {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                    continue
-                else:
-                    logger.error(f"❌ Rate limit después de {max_retries} intentos")
-                    return "⏳ Sistema temporalmente ocupado. Por favor, espera 30 segundos e intenta de nuevo."
-            
-            # Other errors
-            logger.error(f"Error RAG: {e}")
-            return f"😔 Error del sistema. Usa /help o intenta más tarde."
-    
-    return "⏳ Sistema ocupado. Intenta en 1 minuto."
+Sin documentos. Responde breve (máx 150 palabras) basándote en tu conocimiento general sobre finanzas."""
+        
+        # ✅ ТОЧНО ТАК ЖЕ как в AI DISCO BOT
+        response = chat.send_message(prompt)
+        return response.text
+        
+    except Exception as e:
+        logger.error(f"Error generate: {e}")
+        return f"😔 Error: {str(e)[:100]}"
 
 # ============================================================================
-# BASE DE DATOS
+# DATABASE - ПРОСТАЯ ВЕРСИЯ
 # ============================================================================
 
 Base = declarative_base()
@@ -574,7 +467,7 @@ class DataStorage:
 storage = DataStorage()
 
 # ============================================================================
-# UTILIDADES
+# UTILS
 # ============================================================================
 
 def identify_creator(user):
@@ -595,7 +488,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ============================================================================
-# COMANDOS
+# КОМАНДЫ
 # ============================================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -607,83 +500,49 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'first_name': user.first_name or ''
     })
     
-    is_team = storage.is_team_member(user.id)
-    
     text = f"""🤖 <b>¡Hola, {user.first_name}!</b>
 
 Soy <b>PIPILA</b>, Asistente del <b>equipo de Oscar Casco</b>.
 
-<b>🎯 Funciones:</b>
-
-• 💬 Consultas sobre productos financieros
-• 📊 Estrategias de inversión
-• 📚 Búsqueda en documentos del equipo
-• 💡 Asesoría según metodología de Oscar
-• 👥 Apoyo a todo el equipo
-
-<b>⚡ Comandos:</b>
+<b>💬 Uso:</b>
+Escribe tu pregunta directamente o usa:
 
 /search [consulta] - Buscar
 /docs - Ver documentos
-/stats - Tus estadísticas
-/team - Ver equipo
-/help - Ayuda completa
+/stats - Estadísticas
+/help - Ayuda
 
 <b>📖 Áreas:</b>
 DVAG • Generali • Badenia • Advocard
 
-<b>👨‍💻 Creado por:</b> @{CREATOR_USERNAME}
-<b>👔 Para:</b> Equipo Oscar Casco"""
+<b>👨‍💻 Creado por:</b> @{CREATOR_USERNAME}"""
 
-    if is_team:
-        text += "\n\n✅ <i>Eres miembro - acceso completo</i>"
-    else:
-        text += "\n\n⚠️ <i>Solicita acceso al admin</i>"
-    
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard())
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    is_team = storage.is_team_member(update.effective_user.id)
-    
     text = """📚 <b>COMANDOS PIPILA</b>
 
 <b>🔍 Consultas:</b>
 /search [pregunta] - Buscar
-/ask [pregunta] - Consulta directa
+Escribe directamente - responderé
 
 <b>📊 Info:</b>
 /docs - Documentos disponibles
 /stats - Tus estadísticas
 /team - Ver equipo
-/info - Info del bot
-/clear - Limpiar historial conversación
+/clear - Limpiar historial
 
 <b>💡 Ejemplos:</b>
-
-/search productos DVAG
-/search fondos Generali
-¿Cómo funciona Badenia?
-
-<b>💬 Uso directo:</b>
-Escribe sin comandos, responderé
-basándome en documentos.
-
-<b>🧠 Memoria:</b>
-Recuerdo últimos 40 mensajes para
-contexto. Usa /clear para reiniciar."""
-
-    if is_team:
-        text += """
-
-<b>👥 Equipo:</b>
-/reload - Recargar docs"""
+"¿Qué es DVAG?"
+"/search productos Generali"
+"Explica Badenia"""
 
     if is_creator(update.effective_user.id):
         text += """
 
 <b>⚙️ Admin:</b>
-/grant_team [ID] - Añadir
-/remove_team [ID] - Remover"""
+/grant_team [ID] - Añadir miembro
+/reload - Recargar docs"""
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -691,13 +550,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
     if not context.args:
-        await update.message.reply_text(
-            "❓ <b>Uso:</b> /search [consulta]\n\n"
-            "<b>Ejemplos:</b>\n"
-            "/search estrategias inversión\n"
-            "/search productos DVAG",
-            parse_mode=ParseMode.HTML
-        )
+        await update.message.reply_text("❓ /search [consulta]\n\nEjemplo: /search productos DVAG")
         return
     
     query = ' '.join(context.args)
@@ -710,42 +563,27 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = storage.get_user(user_id)
         storage.update_user(user_id, {'query_count': user.get('query_count', 0) + 1})
         
-        await send_long_message(update.message, f"🔍 <b>Consulta:</b> {query}\n\n{response}")
+        await update.message.reply_text(f"🔍 <b>Consulta:</b> {query}\n\n{response}", parse_mode=ParseMode.HTML)
         
     except Exception as e:
         logger.error(f"Error search: {e}")
         await update.message.reply_text(f"😔 Error: {str(e)}")
 
-async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await search_command(update, context)
-
 async def docs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not collection:
-        await update.message.reply_text("❌ Sistema docs no disponible")
-        return
-    
-    count = collection.count()
+    count = collection.count() if collection else 0
     
     text = f"""📚 <b>DOCUMENTOS EQUIPO</b>
 
 📊 Chunks: <b>{count}</b>
 
 <b>📂 Categorías:</b>
-
-• 🏢 <b>DVAG</b> - Productos/servicios
-• 🛡️ <b>Generali</b> - Seguros/fondos
-• 🔐 <b>Badenia</b> - Seguros especializados
-• ⚖️ <b>Advocard</b> - Protección legal
+• DVAG
+• Generali
+• Badenia
+• Advocard
 
 <b>💡 Uso:</b>
-
-/search [tema] o escribe directamente
-
-<b>✨ Ejemplos:</b>
-
-"¿Fondos Generali?"
-"Explica productos DVAG"
-"Seguros Badenia"""
+/search [tema] o escribe directamente"""
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -769,23 +607,14 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>🤖 Sistema:</b>
 • Docs: {doc_count} chunks
 • Uptime: {uptime.days}d {uptime.seconds//3600}h
-• AI: Gemini 2.0 Flash ✅
-• Tokens: 1024 (optimizado)
-• DB: {'PostgreSQL ✅' if engine else 'JSON ✅'}
+• AI: Gemini 2.0 ✅
+• DB: {'PostgreSQL' if engine else 'JSON'} ✅"""
 
-<b>🚀 Estado:</b> 🟢 Online"""
-
-    if storage.is_team_member(user_id):
-        team = storage.get_all_team_members()
-        text += f"\n\n<b>👥 Equipo:</b> {len(team)} miembros"
-    
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not storage.is_team_member(update.effective_user.id):
-        await update.message.reply_text(
-            "⚠️ Solo miembros del equipo.\n\nContacta al admin."
-        )
+        await update.message.reply_text("⚠️ Solo miembros.\n\nContacta al admin.")
         return
     
     team = storage.get_all_team_members()
@@ -794,13 +623,11 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👥 Sin miembros aún.")
         return
     
-    text = f"👥 <b>EQUIPO OSCAR CASCO</b>\n\n<b>Total:</b> {len(team)}\n\n<b>📋 Miembros:</b>\n\n"
+    text = f"👥 <b>EQUIPO OSCAR CASCO</b>\n\n<b>Total:</b> {len(team)}\n\n"
     
     for i, m in enumerate(team, 1):
         text += f"{i}. <b>{m.get('first_name', 'N/A')}</b> (@{m.get('username', 'N/A')})\n"
-        text += f"   • Consultas: {m.get('query_count', 0)}\n\n"
-    
-    text += "\n💡 <i>Todos con acceso completo</i>"
+        text += f"   Consultas: {m.get('query_count', 0)}\n\n"
     
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -808,110 +635,58 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 2.1 (FIXED API)
+<b>📖 Versión:</b> 2.2 (ULTRA SIMPLE)
 
 <b>🧠 Tech:</b>
-• RAG + ChromaDB
-• Gemini 2.0 Flash (FIXED)
+• Gemini 2.0 Flash
+• ChromaDB + RAG
 • PostgreSQL
-• Telegram Bot API 21.5
-
-<b>🎯 Áreas:</b>
-• DVAG
-• Generali
-• Badenia
-• Advocard
-
-<b>✨ Features:</b>
-• Búsqueda inteligente
-• Citas de fuentes
-• Gestión equipo
-• Stats uso
 
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
-<b>👔 Cliente:</b> Oscar Casco
-
-<b>🔒 Privacidad:</b>
-Bot exclusivo equipo.
-Info confidencial."""
+<b>👔 Cliente:</b> Oscar Casco"""
 
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not storage.is_team_member(user_id):
-        await update.message.reply_text("❌ Solo equipo")
+    if not is_creator(update.effective_user.id):
+        await update.message.reply_text("❌ Solo creator")
         return
     
-    msg = await update.message.reply_text("🔄 Recargando docs...")
+    msg = await update.message.reply_text("🔄 Recargando...")
     
     try:
         count = load_documents_to_rag()
         await msg.edit_text(
             f"✅ <b>Docs recargados</b>\n\n"
             f"📚 Documentos: <b>{count}</b>\n"
-            f"📊 Chunks: <b>{collection.count() if collection else 0}</b>\n\n"
-            f"💡 Equipo ya puede consultar info actualizada",
+            f"📊 Chunks: <b>{collection.count() if collection else 0}</b>",
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
         await msg.edit_text(f"❌ Error: {e}")
 
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    
-    if not is_creator(user_id):
+    if not is_creator(update.effective_user.id):
         await update.message.reply_text("❌ Solo creator")
         return
     
     if not context.args:
-        await update.message.reply_text(
-            "❓ <b>Uso:</b> /grant_team [user_id]\n\n"
-            "<b>Ejemplo:</b> /grant_team 123456789",
-            parse_mode=ParseMode.HTML
-        )
+        await update.message.reply_text("❓ /grant_team [user_id]")
         return
     
     try:
         target_id = int(context.args[0])
         storage.update_user(target_id, {'is_team': True})
         
-        target = storage.get_user(target_id)
-        name = target.get('first_name', 'Usuario')
-        
-        await update.message.reply_text(
-            f"✅ <b>{name}</b> (ID: {target_id}) añadido!\n\n"
-            f"👥 Acceso completo activado",
-            parse_mode=ParseMode.HTML
-        )
-        
-        logger.info(f"✅ User {target_id} → equipo por {user_id}")
+        await update.message.reply_text(f"✅ User {target_id} añadido al equipo!")
         
     except ValueError:
         await update.message.reply_text("❌ ID inválido")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Comando /clear - Limpia historial de conversación"""
     user_id = update.effective_user.id
-    
-    # Limpiar memoria de conversación
-    msg_count = 0
-    if user_id in conversation_memory:
-        msg_count = len(conversation_memory[user_id])
-        conversation_memory[user_id] = []
-    
-    # Limpiar chat session
     clear_chat_session(user_id)
-    
-    await update.message.reply_text(
-        f"🧹 <b>Historial limpio</b>\n\n"
-        f"Se borraron {msg_count} mensajes.\n"
-        f"Puedes empezar una nueva conversación.",
-        parse_mode=ParseMode.HTML
-    )
+    await update.message.reply_text("🧹 Historial limpio!")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -927,32 +702,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Botones menú
     if text == "💬 Consultar":
-        await update.message.reply_text(
-            "💬 <b>Modo consulta</b>\n\n"
-            "Escribe tu pregunta\n\n"
-            "<b>Ejemplos:</b>\n"
-            "¿Qué es DVAG?\n"
-            "Fondos Generali",
-            parse_mode=ParseMode.HTML
-        )
+        await update.message.reply_text("💬 Escribe tu pregunta")
         return
-    
     elif text == "📚 Documentos":
         await docs_command(update, context)
         return
-    
     elif text == "📊 Estadísticas":
         await stats_command(update, context)
         return
-    
     elif text == "👥 Equipo":
         await team_command(update, context)
         return
-    
     elif text == "ℹ️ Info":
         await info_command(update, context)
         return
-    
     elif text == "❓ Ayuda":
         await help_command(update, context)
         return
@@ -968,23 +731,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_data = storage.get_user(user_id)
             storage.update_user(user_id, {'query_count': user_data.get('query_count', 0) + 1})
             
-            await send_long_message(update.message, response)
+            await update.message.reply_text(response, parse_mode=ParseMode.HTML)
             
         except Exception as e:
             logger.error(f"Error handle: {e}")
             await update.message.reply_text(f"😔 Error: {str(e)}")
-
-async def send_long_message(message, text: str):
-    max_length = 4000
-    
-    if len(text) <= max_length:
-        await message.reply_text(text, parse_mode=ParseMode.HTML)
-    else:
-        parts = [text[i:i+max_length] for i in range(0, len(text), max_length)]
-        for i, part in enumerate(parts):
-            if i > 0:
-                await asyncio.sleep(0.5)
-            await message.reply_text(part, parse_mode=ParseMode.HTML)
 
 # ============================================================================
 # MAIN
@@ -1005,7 +756,6 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("search", search_command))
-    application.add_handler(CommandHandler("ask", ask_command))
     application.add_handler(CommandHandler("docs", docs_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("team", team_command))
@@ -1022,11 +772,10 @@ def main():
     
     logger.info("=" * 60)
     logger.info("✅ PIPILA iniciado")
-    logger.info(f"🤖 AI: Gemini 2.0 Flash (FIXED - como AI DISCO BOT)")
+    logger.info(f"🤖 AI: Gemini 2.0 Flash (ULTRA SIMPLE)")
     logger.info(f"📚 Docs: {docs_loaded}")
     logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
-    logger.info(f"🗄️ DB: {'PostgreSQL ✅' if engine else 'JSON ✅'}")
-    logger.info("👥 Listo para equipo Oscar Casco")
+    logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
     logger.info("=" * 60)
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
