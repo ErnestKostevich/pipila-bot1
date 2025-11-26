@@ -4,6 +4,8 @@
 🤖 PIPILA - Asistente Financiero Oscar Casco y Equipo
 Bot con RAG (Retrieval Augmented Generation) para equipo financiero
 Creado por Ernest Kostevich para Oscar Casco
+
+VERSION: 2.0 - NUEVO GEMINI API
 """
 
 import os
@@ -19,7 +21,9 @@ from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from telegram.constants import ParseMode
 
-import google.generativeai as genai
+# ✅ NUEVO GEMINI API
+from google import genai
+
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, BigInteger
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -53,55 +57,23 @@ if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN no encontrado")
 
 # ============================================================================
-# GEMINI AI
+# GEMINI AI - NUEVO API
 # ============================================================================
 
+gemini_client = None
+ai_available = False
+
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    
-    ai_model = genai.GenerativeModel(
-        model_name='gemini-2.0-flash-exp',
-        generation_config={
-            "temperature": 0.7,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 1024,  # Уменьшен для экономии токенов
-            "candidate_count": 1,
-        },
-        system_instruction="""Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
-
-IDENTIDAD:
-- Asistente profesional para TODO el equipo de Oscar Casco
-- Ayudas a todos los miembros por igual con dedicación
-- Experto en: DVAG, Generali, Badenia, Advocard
-- Metodología: Basada en documentos y enseñanzas de Oscar Casco
-- Tono: Profesional, claro, cercano y colaborativo
-
-REGLAS IMPORTANTES:
-1. Responde SIEMPRE en español
-2. Trata a todos los miembros con igual profesionalismo
-3. Cita documentos específicos cuando uses su información
-4. Admite si no sabes algo - la honestidad es clave
-5. Prioriza información de los documentos del equipo
-6. Usa ejemplos concretos y prácticos
-7. Respuestas CONCISAS (máximo 500 palabras)
-
-FORMATO:
-- Emojis profesionales con moderación (📊 💰 📈 ✅ ⚠️ 📄)
-- Estructura: Intro → Contenido → Recomendación
-- Citas: "Según el documento [nombre], ..."
-- Conciso pero completo
-
-LÍMITES:
-- NO des asesoramiento sin base documental
-- NO inventes datos
-- NO prometas rendimientos garantizados
-- NO compartas info fuera del equipo"""
-    )
-    
-    logger.info("✅ Gemini 2.0 Flash configurado (limite: 1024 tokens)")
+    try:
+        # ✅ NUEVO: Client en lugar de configure
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        ai_available = True
+        logger.info("✅ Gemini 2.0 Flash (NEW API) configurado")
+    except Exception as e:
+        logger.error(f"❌ Error Gemini: {e}")
+        gemini_client = None
+        ai_available = False
 else:
-    ai_model = None
     logger.error("❌ GEMINI_API_KEY no configurado")
 
 # ============================================================================
@@ -278,12 +250,14 @@ def add_to_conversation(user_id: int, role: str, content: str):
         conversation_memory[user_id] = conversation_memory[user_id][-40:]
 
 async def generate_rag_response(query: str, user_id: int = None) -> str:
-    if not ai_model:
+    """✅ NUEVA VERSIÓN con Gemini Client API"""
+    
+    if not gemini_client or not ai_available:
         return "❌ Sistema IA no disponible."
     
-    # Retry logic для rate limits
+    # Retry logic para rate limits
     max_retries = 3
-    retry_delay = 2  # секунды
+    retry_delay = 2
     
     for attempt in range(max_retries):
         try:
@@ -293,38 +267,71 @@ async def generate_rag_response(query: str, user_id: int = None) -> str:
             # Obtener historial de conversación
             history = get_conversation_history(user_id) if user_id else []
             
-            # Construir contexto de conversación (сокращённый для экономии токенов)
+            # Construir contexto de conversación (sокращённый)
             conversation_context = ""
             if history and len(history) > 0:
-                recent_history = history[-5:]  # Только последние 5 сообщений
+                recent_history = history[-5:]
                 conversation_context = "\n\nCONTEXTO:\n"
                 for msg in recent_history:
                     role_label = "U" if msg['role'] == 'user' else "A"
                     conversation_context += f"{role_label}: {msg['content'][:100]}\n"
             
+            # System instruction
+            system_instruction = """Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
+
+IDENTIDAD:
+- Asistente profesional para TODO el equipo de Oscar Casco
+- Ayudas a todos los miembros por igual con dedicación
+- Experto en: DVAG, Generali, Badenia, Advocard
+- Metodología: Basada en documentos y enseñanzas de Oscar Casco
+- Tono: Profesional, claro, cercano y colaborativo
+
+REGLAS:
+1. Responde SIEMPRE en español
+2. Cita documentos específicos cuando uses su información
+3. Admite si no sabes algo
+4. Respuestas CONCISAS (máximo 300 palabras)
+5. Usa ejemplos prácticos
+
+FORMATO:
+- Emojis profesionales con moderación (📊 💰 📈 ✅)
+- Citas: "Según el documento [nombre], ..."
+
+LÍMITES:
+- NO inventes datos
+- NO prometas rendimientos garantizados"""
+            
             if not context_docs:
-                prompt = f"""Pregunta: {query[:500]}
+                prompt = f"""{system_instruction}
+
+Pregunta: {query[:500]}
 {conversation_context}
 
 Sin documentos. Responde breve (máx 200 palabras) indicando consultar docs del equipo."""
                 
-                response = ai_model.generate_content(prompt)
+                # ✅ NUEVO API: generate_content
+                response = gemini_client.models.generate_content(
+                    model='gemini-2.0-flash-exp',
+                    contents=prompt
+                )
+                
                 result = response.text
                 
-                # Guardar en memoria
                 if user_id:
                     add_to_conversation(user_id, 'user', query)
                     add_to_conversation(user_id, 'assistant', result)
                 
                 return result
             
-            # Limitar contexto para no exceder токены
+            # Limitar contexto
             context_text = "\n\n---\n\n".join([
-                f"📄 {doc['source']}\n{doc['text'][:800]}"  # Máximo 800 chars por doc
-                for doc in context_docs[:3]  # Solo top 3 docs
+                f"📄 {doc['source']}\n{doc['text'][:800]}"
+                for doc in context_docs[:3]
             ])
             
-            rag_prompt = f"""Docs equipo Oscar Casco:
+            rag_prompt = f"""{system_instruction}
+
+Docs equipo Oscar Casco:
 
 {context_text}
 {conversation_context}
@@ -337,10 +344,14 @@ INSTRUCCIONES:
 - Si falta info, dilo
 - Ejemplos prácticos"""
 
-            response = ai_model.generate_content(rag_prompt)
+            # ✅ NUEVO API: generate_content
+            response = gemini_client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=rag_prompt
+            )
+            
             result = response.text
             
-            # Guardar en memoria
             if user_id:
                 add_to_conversation(user_id, 'user', query)
                 add_to_conversation(user_id, 'assistant', result)
@@ -353,7 +364,7 @@ INSTRUCCIONES:
             # Rate limit error
             if "429" in error_str or "quota" in error_str.lower() or "rate" in error_str.lower():
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    wait_time = retry_delay * (2 ** attempt)
                     logger.warning(f"⚠️ Rate limit. Esperando {wait_time}s...")
                     await asyncio.sleep(wait_time)
                     continue
@@ -730,7 +741,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 <b>🤖 Sistema:</b>
 • Docs: {doc_count} chunks
 • Uptime: {uptime.days}d {uptime.seconds//3600}h
-• AI: Gemini 2.0 ✅
+• AI: Gemini 2.0 (NEW API) ✅
 • DB: {'PostgreSQL ✅' if engine else 'JSON ✅'}
 
 <b>🚀 Estado:</b> 🟢 Online"""
@@ -768,11 +779,11 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 1.0
+<b>📖 Versión:</b> 2.0 (NEW API)
 
 <b>🧠 Tech:</b>
 • RAG + ChromaDB
-• Gemini 2.0 Flash
+• Gemini 2.0 Flash (NEW API)
 • PostgreSQL
 • Telegram Bot API 21.5
 
@@ -981,7 +992,7 @@ def main():
     
     logger.info("=" * 60)
     logger.info("✅ PIPILA iniciado")
-    logger.info(f"🤖 AI: Gemini + RAG")
+    logger.info(f"🤖 AI: Gemini 2.0 (NEW API)")
     logger.info(f"📚 Docs: {docs_loaded}")
     logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL ✅' if engine else 'JSON ✅'}")
