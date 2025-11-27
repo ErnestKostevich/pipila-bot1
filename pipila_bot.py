@@ -133,7 +133,7 @@ Escribe directamente - responderé
 <b>🤖 Sistema:</b>
 • Docs: {docs} chunks
 • Uptime: {uptime}
-• AI: Gemini 1.5 Flash ✅
+• AI: Gemini 2.5 Flash ✅
 • DB: {db} ✅
 • Idioma: 🇪🇸 Español""",
         
@@ -156,7 +156,7 @@ Escribe directamente - responderé
 • 📚 RAG con ChromaDB
 
 <b>🤖 Tech:</b>
-• Gemini 1.5 Flash + Vision
+• Gemini 2.5 Flash + Vision
 • ChromaDB + RAG
 • PostgreSQL
 
@@ -264,7 +264,7 @@ Direkt schreiben - ich antworte
 <b>🤖 System:</b>
 • Docs: {docs} Chunks
 • Uptime: {uptime}
-• AI: Gemini 1.5 Flash ✅
+• AI: Gemini 2.5 Flash ✅
 • DB: {db} ✅
 • Sprache: 🇩🇪 Deutsch""",
         
@@ -287,7 +287,7 @@ Direkt schreiben - ich antworte
 • 📚 RAG mit ChromaDB
 
 <b>🤖 Tech:</b>
-• Gemini 1.5 Flash + Vision
+• Gemini 2.5 Flash + Vision
 • ChromaDB + RAG
 • PostgreSQL
 
@@ -403,7 +403,7 @@ Wenn du keine Informationen hast, gib das klar zu."""
 
 # Модель для текста
 model_text = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
+    model_name='gemini-2.5-flash',
     generation_config=generation_config,
     safety_settings=safety_settings,
     system_instruction=SYSTEM_INSTRUCTIONS['es']  # По умолчанию испанский
@@ -411,12 +411,12 @@ model_text = genai.GenerativeModel(
 
 # Модель с Vision для изображений
 model_vision = genai.GenerativeModel(
-    model_name='gemini-1.5-flash',
+    model_name='gemini-2.5-flash',
     generation_config=generation_config,
     safety_settings=safety_settings
 )
 
-logger.info("✅ Gemini 1.5 Flash configurado (text + vision)")
+logger.info("✅ Gemini 2.5 Flash configurado (text + vision)")
 
 # ============================================================================
 # CHROMADB - RAG
@@ -579,7 +579,7 @@ def get_chat_session(user_id: int, lang: str = 'es'):
     if user_id not in chat_sessions:
         # Создаём модель с правильной system instruction
         user_model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name='gemini-2.5-flash',
             generation_config=generation_config,
             safety_settings=safety_settings,
             system_instruction=SYSTEM_INSTRUCTIONS[lang]
@@ -1386,7 +1386,7 @@ def main():
     
     logger.info("=" * 60)
     logger.info("✅ PIPILA iniciado (v3.0 ENHANCED)")
-    logger.info(f"🤖 AI: Gemini 1.5 Flash + Vision")
+    logger.info(f"🤖 AI: Gemini 2.5 Flash + Vision")
     logger.info(f"📚 Docs: {docs_loaded}")
     logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
