@@ -117,10 +117,54 @@ def download_and_extract():
             if len(file_list) > 5:
                 log(f"  ... and {len(file_list) - 5} more files")
             
-            log("Extracting...")
-            zip_ref.extractall(output_dir)
+            log("Extracting files directly to documents/ (flat structure)...")
             
-        log(f"✅ Extracted to: {output_dir}")
+            # ✅ EXTRACT FLAT: All files go directly to documents/
+            extracted_count = 0
+            for member in zip_ref.namelist():
+                # Skip directories
+                if member.endswith('/'):
+                    continue
+                    
+                # Get just the filename (no path)
+                filename = os.path.basename(member)
+                
+                # Skip if no filename
+                if not filename:
+                    continue
+                
+                # Skip system files
+                if filename.startswith('.') or filename.startswith('_'):
+                    continue
+                
+                # Skip __MACOSX
+                if '__MACOSX' in member:
+                    continue
+                
+                # Extract to documents/ directly
+                try:
+                    source = zip_ref.open(member)
+                    target_path = os.path.join(output_dir, filename)
+                    
+                    # If file exists, add number
+                    if os.path.exists(target_path):
+                        name, ext = os.path.splitext(filename)
+                        counter = 1
+                        while os.path.exists(target_path):
+                            target_path = os.path.join(output_dir, f"{name}_{counter}{ext}")
+                            counter += 1
+                    
+                    with open(target_path, "wb") as target:
+                        target.write(source.read())
+                    
+                    source.close()
+                    extracted_count += 1
+                except Exception as e:
+                    log(f"⚠️ Failed to extract {filename}: {e}")
+            
+            log(f"✅ Extracted {extracted_count} files to: {output_dir}")
+            
+        log(f"✅ Extraction complete")
         
         # Verify extraction
         if not os.path.exists(output_dir):
