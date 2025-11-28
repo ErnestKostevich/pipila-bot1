@@ -2,16 +2,18 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 5.0 - SIMPLIFIED (Dropbox only, no Google Drive)
+VERSION: 5.1 - FIXED (Async webhook + Fallback download)
 - Multilingual (ES/DE) with auto-detect
 - RAG with ChromaDB
-- Downloads from Dropbox on start
-- No complicated Google auth
+- Downloads from Dropbox with fallback
+- Fixed async issues
 """
 import os
+import sys
 import json
 import logging
 import asyncio
+import subprocess
 from datetime import datetime
 from typing import List, Dict, Optional
 from pathlib import Path
@@ -110,7 +112,7 @@ Escribe directamente - responderé
 {members}""",
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
-<b>📖 Versión:</b> 5.0 (SIMPLIFIED)
+<b>📖 Versión:</b> 5.1 (FIXED)
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
@@ -208,7 +210,7 @@ Direkt schreiben - ich antworte
 {members}""",
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
-<b>📖 Version:</b> 5.0 (SIMPLIFIED)
+<b>📖 Version:</b> 5.1 (FIXED)
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
@@ -889,7 +891,6 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         # Run download script
-        import subprocess
         result = subprocess.run(
             [sys.executable, "download_gdrive_recursive.py"],
             capture_output=True,
@@ -1018,15 +1019,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(get_text(current_lang, 'error', error=str(e)))
 
 # ============================================================================
+# DOWNLOAD FALLBACK
+# ============================================================================
+def try_download_documents():
+    """Try to download documents if they don't exist"""
+    if os.path.exists(DOCUMENTS_FOLDER):
+        # Check if folder has files
+        has_files = False
+        for _, _, files in os.walk(DOCUMENTS_FOLDER):
+            if files:
+                has_files = True
+                break
+        if has_files:
+            logger.info(f"✅ Documents folder exists with files")
+            return
+    
+    logger.warning("⚠️ Documents folder empty or missing - attempting download...")
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, "download_gdrive_recursive.py"],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        if result.returncode == 0:
+            logger.info("✅ Fallback download successful!")
+            logger.info(result.stdout)
+        else:
+            logger.error(f"❌ Fallback download failed: {result.stderr}")
+            
+    except Exception as e:
+        logger.error(f"❌ Fallback download error: {e}")
+
+# ============================================================================
 # MAIN
 # ============================================================================
-def main():
+async def main():
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v5.0 SIMPLIFIED")
+    logger.info("🚀 PIPILA v5.1 FIXED")
     logger.info("=" * 60)
-    logger.info("📚 Loading documents...")
     
-    # Load documents that were downloaded during build
+    # Try to download documents if needed
+    try_download_documents()
+    
+    logger.info("📚 Loading documents into RAG...")
     docs_loaded = load_documents_to_rag()
     logger.info(f"✅ {docs_loaded} docs loaded")
     
@@ -1056,8 +1094,16 @@ def main():
     logger.info(f"📄 File support: ✅ (PDF, DOCX, TXT)")
     logger.info("=" * 60)
     
-    application.bot.delete_webhook(drop_pending_updates=True)
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30, poll_interval=1)
+    # ✅ FIXED: Proper async webhook deletion
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    
+    # Start polling
+    await application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        timeout=30,
+        poll_interval=1
+    )
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
