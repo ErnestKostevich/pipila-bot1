@@ -4,7 +4,7 @@
 🤖 PIPILA - Asistente Financiero Oscar Casco
 VERSION: 7.0 FINAL - 100% PRODUCTION READY
 ✅ Fixed ALL async issues
-✅ Background document loading
+✅ Background document loading  
 ✅ Works on Python 3.13
 ✅ Works on Render.com
 """
@@ -941,9 +941,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================================
 # BACKGROUND LOADING
 # ============================================================================
-async def load_documents_background(context: ContextTypes.DEFAULT_TYPE):
+async def load_documents_background():
     """Background task to load documents"""
     logger.info("📚 Background loading started...")
+    await asyncio.sleep(10)  # Wait for bot to fully start
     try:
         docs_loaded = load_documents_to_rag()
         logger.info(f"✅ Background loading complete: {docs_loaded} docs, {collection.count() if collection else 0} chunks")
@@ -985,17 +986,21 @@ def main():
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # ✅ Schedule background document loading (after 10 seconds)
-    application.job_queue.run_once(load_documents_background, when=10)
-    
     logger.info("=" * 60)
     logger.info("✅ PIPILA started successfully")
     logger.info(f"🤖 AI: Gemini 2.5 Flash")
     logger.info(f"📊 Initial chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
     logger.info(f"🌍 Languages: ES, DE")
-    logger.info(f"📚 Background loading: scheduled")
+    logger.info(f"📚 Background loading: will start after initialization")
     logger.info("=" * 60)
+    
+    # ✅ Start background loading after bot initializes
+    async def post_init(app):
+        """Called after bot initialization"""
+        asyncio.create_task(load_documents_background())
+    
+    application.post_init = post_init
     
     # ✅ CRITICAL: Use run_polling() WITHOUT asyncio.run()
     # Telegram bots manage their own event loop
