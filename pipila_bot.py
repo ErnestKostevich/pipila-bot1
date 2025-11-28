@@ -2,13 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 3.0 - ENHANCED
-- Multilingual (ES/DE) con auto-detección
-- Soporte de imágenes (screenshots)
-- Soporte de archivos (PDF, DOCX, TXT)
-- Comandos en idioma seleccionado
+VERSION: 4.0 - FULL OPTIMIZED (with recursive Google Drive download)
+- Multilingual (ES/DE) with auto-detect
+- RAG with ChromaDB
+- Downloads 1GB folder from Drive recursively on start/reload
+- Memory optimized: small chunks, limits, skip large files
+- Fixed Telegram conflict, added retries
+- AI: Exactly Gemini 2.5 Flash as in original code
 """
-
 import os
 import json
 import logging
@@ -17,159 +18,135 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from pathlib import Path
 import re
-
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram.constants import ParseMode
-
-# ✅ Gemini API oficial
 import google.generativeai as genai
-from PIL import Image
-import io
-
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, BigInteger
 from sqlalchemy.orm import sessionmaker, declarative_base
-
-# RAG
 import chromadb
 import PyPDF2
 import docx
+# Google Drive
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2.service_account import Credentials
 
 # ============================================================================
-# КОНФИГУРАЦИЯ
+# CONFIG
 # ============================================================================
-
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GOOGLE_SERVICE_ACCOUNT = os.getenv('GOOGLE_SERVICE_ACCOUNT')  # JSON string
+DRIVE_FOLDER_ID = os.getenv('DRIVE_FOLDER_ID')  # e.g., '1vK_GFk3M3vA4vQksZGnGCM027sv39Rz4'
 DATABASE_URL = os.getenv('DATABASE_URL')
-
 CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
 BOT_START_TIME = datetime.now()
+DOCUMENTS_FOLDER = "./documents"
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 
-if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN не найден")
+if not BOT_TOKEN or not GEMINI_API_KEY:
+    raise ValueError("❌ BOT_TOKEN or GEMINI_API_KEY not found")
+if DRIVE_FOLDER_ID and GOOGLE_SERVICE_ACCOUNT:
+    try:
+        SERVICE_ACCOUNT_INFO = json.loads(GOOGLE_SERVICE_ACCOUNT)
+    except json.JSONDecodeError:
+        raise ValueError("❌ Invalid GOOGLE_SERVICE_ACCOUNT JSON")
+    SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
+    credentials = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
+    drive_service = build('drive', 'v3', credentials=credentials)
+else:
+    logger.warning("⚠️ Drive env vars missing - skipping download")
+    drive_service = None
 
 # ============================================================================
-# МУЛЬТИЯЗЫЧНОСТЬ
+# MULTILANGUAGE
 # ============================================================================
-
 TRANSLATIONS = {
     'es': {
         'welcome': """🤖 <b>¡Hola, {name}!</b>
-
 Soy <b>PIPILA</b>, Asistente del <b>equipo de Oscar Casco</b>.
-
 <b>💬 Uso:</b>
 Escribe tu pregunta directamente o envía:
-• 📷 Screenshots (los analizaré)
 • 📄 Archivos PDF/DOCX/TXT
-
 <b>Comandos:</b>
 /search [consulta] - Buscar
 /docs - Ver documentos
 /stats - Estadísticas
 /lang - Cambiar idioma
 /help - Ayuda
-
 <b>📖 Áreas:</b>
 DVAG • Generali • Badenia • Advocard
-
 <b>👨‍💻 Creado por:</b> @{creator}""",
-        
         'help': """📚 <b>COMANDOS PIPILA</b>
-
 <b>🔍 Consultas:</b>
 /search [pregunta] - Buscar en docs
 Escribe directamente - responderé
-📷 Envía screenshot - lo analizo
 📄 Envía archivo - lo proceso
-
 <b>📊 Info:</b>
 /docs - Documentos disponibles
 /stats - Tus estadísticas
 /team - Ver equipo
 /lang - Cambiar idioma (ES/DE)
 /clear - Limpiar historial
-
 <b>💡 Ejemplos:</b>
 "¿Qué es DVAG?"
 "/search productos Generali"
 "Explica Badenia"
-📷 [screenshot de documento]
 📄 [archivo PDF]""",
-        
         'docs': """📚 <b>DOCUMENTOS EQUIPO</b>
-
 📊 Chunks: <b>{count}</b>
-
 <b>📂 Categorías:</b>
 • DVAG
 • Generali
 • Badenia
 • Advocard
-
 <b>💡 Uso:</b>
 /search [tema] o escribe directamente
-📷 Envía screenshots para análisis
 📄 Envía archivos PDF/DOCX/TXT""",
-        
         'stats': """📊 <b>TUS ESTADÍSTICAS</b>
-
 <b>👤 Perfil:</b>
 • {name}
 • @{username}
 • {access}
-
 <b>📈 Actividad:</b>
 • Consultas: <b>{queries}</b>
-
 <b>🤖 Sistema:</b>
 • Docs: {docs} chunks
 • Uptime: {uptime}
 • AI: Gemini 2.5 Flash ✅
 • DB: {db} ✅
 • Idioma: 🇪🇸 Español""",
-        
         'team': """👥 <b>EQUIPO OSCAR CASCO</b>
-
 <b>Total:</b> {count}
-
 {members}""",
-        
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
-
-<b>📖 Versión:</b> 3.0 (ENHANCED)
-
+<b>📖 Versión:</b> 4.0 (OPTIMIZED)
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
-• 📷 Análisis de imágenes/screenshots
 • 📄 Procesamiento de archivos
 • 🌍 Multilenguaje (ES/DE)
 • 📚 RAG con ChromaDB
-
 <b>🤖 Tech:</b>
-• Gemini 2.5 Flash + Vision
+• Gemini 2.5 Flash
 • ChromaDB + RAG
 • PostgreSQL
-
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Cliente:</b> Oscar Casco""",
-        
         'no_docs': '⚠️ No hay documentos cargados. Contacta al admin.',
         'team_only': '⚠️ Solo para miembros del equipo.\n\nContacta al admin.',
         'admin_only': '❌ Solo para administradores.',
         'cleared': '🧹 ¡Historial limpio!',
         'error': '😔 Error: {error}',
         'processing': '⏳ Procesando...',
-        'analyzing_image': '🔍 Analizando imagen...',
         'processing_file': '📄 Procesando archivo...',
         'no_query': '❓ Uso: /search [consulta]\n\nEjemplo: /search productos DVAG',
         'invalid_id': '❌ ID inválido',
@@ -179,7 +156,6 @@ Escribe directamente - responderé
         'lang_changed': '✅ Idioma cambiado a: 🇪🇸 Español',
         'choose_lang': '🌍 <b>Selecciona idioma:</b>',
         'ask_question': '💬 Escribe tu pregunta',
-        'image_no_vision': '⚠️ Análisis de imágenes no disponible. Envía texto o archivos.',
         'file_processed': '✅ Archivo procesado: {filename}\n\n{response}',
         'file_error': '❌ Error procesando archivo: {error}',
         'keyboard': {
@@ -191,116 +167,83 @@ Escribe directamente - responderé
             'help': '❓ Ayuda'
         }
     },
-    
     'de': {
         'welcome': """🤖 <b>Hallo, {name}!</b>
-
 Ich bin <b>PIPILA</b>, Assistent des <b>Teams von Oscar Casco</b>.
-
 <b>💬 Verwendung:</b>
 Stelle direkt deine Frage oder sende:
-• 📷 Screenshots (ich analysiere sie)
 • 📄 PDF/DOCX/TXT Dateien
-
 <b>Befehle:</b>
 /search [Anfrage] - Suchen
 /docs - Dokumente ansehen
 /stats - Statistiken
 /lang - Sprache ändern
 /help - Hilfe
-
 <b>📖 Bereiche:</b>
 DVAG • Generali • Badenia • Advocard
-
 <b>👨‍💻 Erstellt von:</b> @{creator}""",
-        
         'help': """📚 <b>PIPILA BEFEHLE</b>
-
 <b>🔍 Anfragen:</b>
 /search [Frage] - In Docs suchen
 Direkt schreiben - ich antworte
-📷 Screenshot senden - ich analysiere
 📄 Datei senden - ich verarbeite
-
 <b>📊 Info:</b>
 /docs - Verfügbare Dokumente
 /stats - Deine Statistiken
 /team - Team ansehen
 /lang - Sprache ändern (ES/DE)
 /clear - Verlauf löschen
-
 <b>💡 Beispiele:</b>
 "Was ist DVAG?"
 "/search Generali Produkte"
 "Erkläre Badenia"
-📷 [Dokument Screenshot]
 📄 [PDF Datei]""",
-        
         'docs': """📚 <b>TEAM DOKUMENTE</b>
-
 📊 Chunks: <b>{count}</b>
-
 <b>📂 Kategorien:</b>
 • DVAG
 • Generali
 • Badenia
 • Advocard
-
 <b>💡 Verwendung:</b>
 /search [Thema] oder direkt schreiben
-📷 Screenshots zur Analyse senden
 📄 PDF/DOCX/TXT Dateien senden""",
-        
         'stats': """📊 <b>DEINE STATISTIKEN</b>
-
 <b>👤 Profil:</b>
 • {name}
 • @{username}
 • {access}
-
 <b>📈 Aktivität:</b>
 • Anfragen: <b>{queries}</b>
-
 <b>🤖 System:</b>
 • Docs: {docs} Chunks
 • Uptime: {uptime}
 • AI: Gemini 2.5 Flash ✅
 • DB: {db} ✅
 • Sprache: 🇩🇪 Deutsch""",
-        
         'team': """👥 <b>OSCAR CASCO TEAM</b>
-
 <b>Gesamt:</b> {count}
-
 {members}""",
-        
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
-
-<b>📖 Version:</b> 3.0 (ENHANCED)
-
+<b>📖 Version:</b> 4.0 (OPTIMIZED)
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
-• 📷 Bild-/Screenshot-Analyse
 • 📄 Dateiverarbeitung
 • 🌍 Mehrsprachig (ES/DE)
 • 📚 RAG mit ChromaDB
-
 <b>🤖 Tech:</b>
-• Gemini 2.5 Flash + Vision
+• Gemini 2.5 Flash
 • ChromaDB + RAG
 • PostgreSQL
-
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Kunde:</b> Oscar Casco""",
-        
         'no_docs': '⚠️ Keine Dokumente geladen. Kontaktiere den Admin.',
         'team_only': '⚠️ Nur für Teammitglieder.\n\nKontaktiere den Admin.',
         'admin_only': '❌ Nur für Administratoren.',
         'cleared': '🧹 Verlauf gelöscht!',
         'error': '😔 Fehler: {error}',
         'processing': '⏳ Verarbeite...',
-        'analyzing_image': '🔍 Analysiere Bild...',
         'processing_file': '📄 Verarbeite Datei...',
         'no_query': '❓ Verwendung: /search [Anfrage]\n\nBeispiel: /search DVAG Produkte',
         'invalid_id': '❌ Ungültige ID',
@@ -310,7 +253,6 @@ Direkt schreiben - ich antworte
         'lang_changed': '✅ Sprache geändert zu: 🇩🇪 Deutsch',
         'choose_lang': '🌍 <b>Sprache wählen:</b>',
         'ask_question': '💬 Stelle deine Frage',
-        'image_no_vision': '⚠️ Bildanalyse nicht verfügbar. Sende Text oder Dateien.',
         'file_processed': '✅ Datei verarbeitet: {filename}\n\n{response}',
         'file_error': '❌ Fehler beim Verarbeiten der Datei: {error}',
         'keyboard': {
@@ -325,118 +267,188 @@ Direkt schreiben - ich antworte
 }
 
 def get_text(lang: str, key: str, **kwargs) -> str:
-    """Получить переведённый текст"""
     text = TRANSLATIONS.get(lang, TRANSLATIONS['es']).get(key, key)
-    if kwargs:
-        return text.format(**kwargs)
-    return text
+    return text.format(**kwargs) if kwargs else text
 
 def detect_language(text: str) -> str:
-    """Простое определение языка по ключевым словам"""
     text_lower = text.lower()
-    
-    # Немецкие индикаторы
-    de_words = ['was', 'wie', 'wo', 'wann', 'warum', 'ist', 'sind', 'haben', 'können', 
+    de_words = ['was', 'wie', 'wo', 'wann', 'warum', 'ist', 'sind', 'haben', 'können',
                 'möchte', 'bitte', 'danke', 'gut', 'schlecht', 'ja', 'nein', 'ich', 'du', 'er', 'sie']
-    
-    # Испанские индикаторы
     es_words = ['qué', 'cómo', 'dónde', 'cuándo', 'por qué', 'es', 'son', 'tener', 'poder',
                 'quiero', 'por favor', 'gracias', 'bueno', 'malo', 'sí', 'no', 'yo', 'tú', 'él', 'ella']
-    
     de_count = sum(1 for word in de_words if word in text_lower)
     es_count = sum(1 for word in es_words if word in text_lower)
-    
     return 'de' if de_count > es_count else 'es'
 
 # ============================================================================
-# GEMINI AI - С ПОДДЕРЖКОЙ VISION
+# GEMINI AI - EXACTLY AS IN YOUR ORIGINAL CODE (gemini-2.5-flash)
 # ============================================================================
-
 genai.configure(api_key=GEMINI_API_KEY)
-
 generation_config = {
     "temperature": 1,
     "top_p": 0.95,
     "top_k": 40,
     "max_output_tokens": 1024,
 }
-
 safety_settings = [
     {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
     {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
 ]
-
-# System instructions по языкам
 SYSTEM_INSTRUCTIONS = {
     'es': """Eres PIPILA, el Asistente Financiero del equipo de Oscar Casco.
-
 Responde SIEMPRE en español. Sé profesional, claro y conciso (máximo 300 palabras).
-
 Áreas de expertise:
 - DVAG
-- Generali  
+- Generali
 - Badenia
 - Advocard
-
 Si tienes documentos en el contexto, cítalos: "Según el documento [nombre]..."
-Si analizas una imagen, describe lo que ves y extrae información relevante.
 Si procesas un archivo, resume su contenido y responde la pregunta del usuario.
 Si no tienes información, admítelo claramente.""",
-    
     'de': """Du bist PIPILA, der Finanzassistent des Teams von Oscar Casco.
-
 Antworte IMMER auf Deutsch. Sei professionell, klar und präzise (maximal 300 Wörter).
-
 Fachgebiete:
 - DVAG
 - Generali
 - Badenia
 - Advocard
-
 Wenn du Dokumente im Kontext hast, zitiere sie: "Laut Dokument [Name]..."
-Wenn du ein Bild analysierst, beschreibe was du siehst und extrahiere relevante Informationen.
 Wenn du eine Datei verarbeitest, fasse ihren Inhalt zusammen und beantworte die Frage des Benutzers.
 Wenn du keine Informationen hast, gib das klar zu."""
 }
-
-# Модель для текста
 model_text = genai.GenerativeModel(
-    model_name='gemini-2.5-flash',
-    generation_config=generation_config,
-    safety_settings=safety_settings,
-    system_instruction=SYSTEM_INSTRUCTIONS['es']  # По умолчанию испанский
-)
-
-# Модель с Vision для изображений
-model_vision = genai.GenerativeModel(
     model_name='gemini-2.5-flash',
     generation_config=generation_config,
     safety_settings=safety_settings
 )
 
-logger.info("✅ Gemini 2.5 Flash configurado (text + vision)")
+logger.info("✅ Gemini 2.5 Flash configured (text only, as in original)")
+
+# ============================================================================
+# CHAT SESSIONS
+# ============================================================================
+chat_sessions = {}
+user_languages = {}
+
+def get_chat_session(user_id: int, lang: str = 'es'):
+    if user_id not in chat_sessions:
+        user_model = genai.GenerativeModel(
+            model_name='gemini-2.5-flash',
+            generation_config=generation_config,
+            safety_settings=safety_settings,
+            system_instruction=SYSTEM_INSTRUCTIONS[lang]
+        )
+        chat_sessions[user_id] = user_model.start_chat(history=[])
+    return chat_sessions[user_id]
+
+def clear_chat_session(user_id: int):
+    if user_id in chat_sessions:
+        del chat_sessions[user_id]
+
+def get_user_language(user_id: int) -> str:
+    return user_languages.get(user_id, 'es')
+
+def set_user_language(user_id: int, lang: str):
+    user_languages[user_id] = lang
+    clear_chat_session(user_id)
+
+# ============================================================================
+# AI FUNCTIONS
+# ============================================================================
+async def generate_text_response(query: str, user_id: int = None, context_docs: List[Dict] = None) -> str:
+    try:
+        lang = get_user_language(user_id) if user_id else 'es'
+        chat = get_chat_session(user_id, lang) if user_id else model_text.start_chat(history=[])
+       
+        if context_docs:
+            context_text = "\n\n".join([
+                f"📄 {doc['source']}: {doc['text'][:500]}" for doc in context_docs
+            ])
+            prompt = f"""DOCUMENTOS:
+{context_text}
+PREGUNTA: {query[:300]}
+Responde breve (máx 200 palabras), citando documentos.""" if lang == 'es' else f"""DOKUMENTE:
+{context_text}
+FRAGE: {query[:300]}
+Antworte kurz (max 200 Wörter), zitiere Dokumente."""
+        else:
+            prompt = f"""PREGUNTA: {query[:300]}
+Sin documentos. Responde breve (máx 150 palabras) basándote en tu conocimiento general sobre finanzas.""" if lang == 'es' else f"""FRAGE: {query[:300]}
+Keine Dokumente. Antworte kurz (max 150 Wörter) basierend auf deinem allgemeinen Finanzwissen."""
+       
+        for attempt in range(3):  # Retry
+            try:
+                response = chat.send_message(prompt)
+                return response.text
+            except Exception as e:
+                logger.error(f"Gemini retry {attempt}: {e}")
+                await asyncio.sleep(2)
+        return get_text(lang, 'error', error="Gemini failed after retries")
+    except Exception as e:
+        logger.error(f"Error generate text: {e}")
+        return get_text(lang, 'error', error=str(e)[:100])
+
+async def process_file(file_bytes: bytes, filename: str, query: str = "", user_id: int = None) -> str:
+    try:
+        lang = get_user_language(user_id) if user_id else 'es'
+        file_ext = Path(filename).suffix.lower()
+       
+        temp_path = f"/tmp/{filename}"
+        with open(temp_path, 'wb') as f:
+            f.write(file_bytes)
+       
+        text = ""
+        if file_ext == '.pdf':
+            text = extract_text_from_pdf(temp_path)
+        elif file_ext in ['.docx', '.doc']:
+            text = extract_text_from_docx(temp_path)
+        elif file_ext == '.txt':
+            text = file_bytes.decode('utf-8', errors='ignore')
+       
+        os.remove(temp_path)
+       
+        if not text or len(text) < 10:
+            return get_text(lang, 'file_error', error="No text extracted")
+       
+        chat = get_chat_session(user_id, lang)
+       
+        prompt = f"""ARCHIVO: {filename}
+CONTENIDO:
+{text[:2000]}
+{f'PREGUNTA DEL USUARIO: {query}' if query else ''}
+Analiza el contenido del archivo y:
+1. Resume los puntos principales
+2. Extrae información clave
+3. {f'Responde a la pregunta del usuario' if query else 'Proporciona conclusiones relevantes'}
+Máximo 250 palabras.""" if lang == 'es' else f"""DATEI: {filename}
+INHALT:
+{text[:2000]}
+{f'BENUTZERFRAGE: {query}' if query else ''}
+Analysiere den Dateiinhalt und:
+1. Fasse die Hauptpunkte zusammen
+2. Extrahiere wichtige Informationen
+3. {f'Beantworte die Benutzerfrage' if query else 'Gib relevante Schlussfolgerungen'}
+Maximal 250 Wörter."""
+       
+        response = chat.send_message(prompt)
+        return response.text
+       
+    except Exception as e:
+        logger.error(f"Error process file: {e}")
+        return get_text(lang, 'file_error', error=str(e)[:100])
 
 # ============================================================================
 # CHROMADB - RAG
 # ============================================================================
-
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-
 try:
-    collection = chroma_client.get_or_create_collection(
-        name="pipila_documents",
-        metadata={"description": "Documentos equipo Oscar Casco"}
-    )
+    collection = chroma_client.get_or_create_collection(name="pipila_documents")
     logger.info(f"✅ ChromaDB OK: {collection.count()} chunks")
 except Exception as e:
-    logger.error(f"❌ Error ChromaDB: {e}")
+    logger.error(f"❌ ChromaDB error: {e}")
     collection = None
-
-# ============================================================================
-# RAG FUNCTIONS
-# ============================================================================
 
 def extract_text_from_pdf(file_path: str) -> str:
     try:
@@ -449,7 +461,7 @@ def extract_text_from_pdf(file_path: str) -> str:
                     text += page_text + "\n"
             return text
     except Exception as e:
-        logger.error(f"Error PDF {file_path}: {e}")
+        logger.error(f"PDF error {file_path}: {e}")
         return ""
 
 def extract_text_from_docx(file_path: str) -> str:
@@ -458,44 +470,40 @@ def extract_text_from_docx(file_path: str) -> str:
         text = "\n".join([p.text for p in doc.paragraphs if p.text])
         return text
     except Exception as e:
-        logger.error(f"Error DOCX {file_path}: {e}")
+        logger.error(f"DOCX error {file_path}: {e}")
         return ""
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
     if not text or len(text) < 100:
         return []
-    
     chunks = []
     start = 0
     text_length = len(text)
-    
     while start < text_length:
         end = min(start + chunk_size, text_length)
         chunk = text[start:end].strip()
         if chunk:
             chunks.append(chunk)
         start += chunk_size - overlap
-    
     return chunks
 
-def load_documents_to_rag(documents_folder: str = "./documents") -> int:
+def load_documents_to_rag(documents_folder: str = DOCUMENTS_FOLDER) -> int:
     if not collection:
-        logger.error("ChromaDB no disponible")
+        logger.error("ChromaDB not available")
         return 0
-    
     if not os.path.exists(documents_folder):
-        logger.warning(f"❌ Carpeta {documents_folder} no existe")
+        logger.warning(f"❌ Folder {documents_folder} not exists")
         return 0
-    
     documents_loaded = 0
     total_chunks = 0
-    
     for root, dirs, files in os.walk(documents_folder):
         for file in files:
             file_path = os.path.join(root, file)
             file_ext = Path(file).suffix.lower()
-            
             try:
+                if os.path.getsize(file_path) > 10 * 1024 * 1024:  # Skip large files
+                    logger.warning(f"Skipping large file: {file}")
+                    continue
                 text = ""
                 if file_ext == '.pdf':
                     text = extract_text_from_pdf(file_path)
@@ -506,14 +514,11 @@ def load_documents_to_rag(documents_folder: str = "./documents") -> int:
                         text = f.read()
                 else:
                     continue
-                
                 if not text or len(text) < 100:
                     continue
-                
                 chunks = chunk_text(text)
                 if not chunks:
                     continue
-                
                 for i, chunk in enumerate(chunks):
                     doc_id = f"{file}_{i}_{hash(chunk) % 10000}"
                     try:
@@ -529,28 +534,22 @@ def load_documents_to_rag(documents_folder: str = "./documents") -> int:
                         )
                     except:
                         pass
-                
                 documents_loaded += 1
                 total_chunks += len(chunks)
                 logger.info(f"✅ {file} ({len(chunks)} chunks)")
-                
             except Exception as e:
                 logger.error(f"Error {file}: {e}")
-    
     logger.info(f"📚 Total: {documents_loaded} docs, {total_chunks} chunks")
     return documents_loaded
 
 def search_rag(query: str, n_results: int = 3) -> List[Dict]:
-    """Búsqueda en documentos"""
     if not collection:
         return []
-    
     try:
         results = collection.query(
             query_texts=[query],
             n_results=n_results
         )
-        
         context_docs = []
         if results and results['documents'] and results['documents'][0]:
             for i, doc in enumerate(results['documents'][0]):
@@ -560,224 +559,67 @@ def search_rag(query: str, n_results: int = 3) -> List[Dict]:
                     'source': metadata.get('source', 'Unknown'),
                     'chunk': metadata.get('chunk', 0)
                 })
-        
         return context_docs
-        
     except Exception as e:
-        logger.error(f"Error RAG search: {e}")
+        logger.error(f"RAG search error: {e}")
         return []
 
 # ============================================================================
-# CHAT SESSIONS
+# GOOGLE DRIVE DOWNLOAD (recursive, fixed and optimized)
 # ============================================================================
-
-chat_sessions = {}
-user_languages = {}  # Хранение языка пользователя
-
-def get_chat_session(user_id: int, lang: str = 'es'):
-    """Получает chat session для пользователя с правильным языком"""
-    if user_id not in chat_sessions:
-        # Создаём модель с правильной system instruction
-        user_model = genai.GenerativeModel(
-            model_name='gemini-2.5-flash',
-            generation_config=generation_config,
-            safety_settings=safety_settings,
-            system_instruction=SYSTEM_INSTRUCTIONS[lang]
-        )
-        chat_sessions[user_id] = user_model.start_chat(history=[])
-    return chat_sessions[user_id]
-
-def clear_chat_session(user_id: int):
-    """Очищает chat session"""
-    if user_id in chat_sessions:
-        del chat_sessions[user_id]
-
-def get_user_language(user_id: int) -> str:
-    """Получает язык пользователя"""
-    return user_languages.get(user_id, 'es')
-
-def set_user_language(user_id: int, lang: str):
-    """Устанавливает язык пользователя"""
-    user_languages[user_id] = lang
-    # Пересоздаём chat session с новым языком
-    clear_chat_session(user_id)
-
-# ============================================================================
-# AI GENERATION FUNCTIONS
-# ============================================================================
-
-async def generate_text_response(query: str, user_id: int = None, context_docs: List[Dict] = None) -> str:
-    """Генерация текстового ответа"""
+def download_file(file_id: str, dest_path: str):
     try:
-        lang = get_user_language(user_id) if user_id else 'es'
-        chat = get_chat_session(user_id, lang) if user_id else model_text.start_chat(history=[])
-        
-        if context_docs:
-            context_text = "\n\n".join([
-                f"📄 {doc['source']}: {doc['text'][:500]}"
-                for doc in context_docs[:2]
-            ])
-            
-            if lang == 'es':
-                prompt = f"""DOCUMENTOS:
+        request = drive_service.files().get_media(fileId=file_id)
+        with open(dest_path, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+        logger.info(f"✅ Downloaded: {dest_path}")
+    except Exception as e:
+        logger.error(f"❌ Download error {file_id}: {e}")
 
-{context_text}
-
-PREGUNTA: {query[:300]}
-
-Responde breve (máx 200 palabras), citando documentos."""
+def download_folder(folder_id: str, dest_folder: str = DOCUMENTS_FOLDER):
+    Path(dest_folder).mkdir(parents=True, exist_ok=True)
+    query = f"'{folder_id}' in parents and trashed=false"
+    page_token = None
+    while True:
+        results = drive_service.files().list(q=query, pageSize=100, fields="nextPageToken, files(id, name, mimeType, size)", pageToken=page_token).execute()
+        files = results.get('files', [])
+        for file in files:
+            name = file['name']
+            file_id = file['id']
+            mime = file['mimeType']
+            if mime == 'application/vnd.google-apps.folder':
+                sub_folder = os.path.join(dest_folder, name)
+                download_folder(file_id, sub_folder)  # Recursive
             else:
-                prompt = f"""DOKUMENTE:
-
-{context_text}
-
-FRAGE: {query[:300]}
-
-Antworte kurz (max 200 Wörter), zitiere Dokumente."""
-        else:
-            if lang == 'es':
-                prompt = f"""PREGUNTA: {query[:300]}
-
-Sin documentos. Responde breve (máx 150 palabras) basándote en tu conocimiento general sobre finanzas."""
-            else:
-                prompt = f"""FRAGE: {query[:300]}
-
-Keine Dokumente. Antworte kurz (max 150 Wörter) basierend auf deinem allgemeinen Finanzwissen."""
-        
-        response = chat.send_message(prompt)
-        return response.text
-        
-    except Exception as e:
-        logger.error(f"Error generate text: {e}")
-        return get_text(lang, 'error', error=str(e)[:100])
-
-async def analyze_image(image_bytes: bytes, query: str = "", user_id: int = None) -> str:
-    """Анализ изображения с помощью Gemini Vision"""
-    try:
-        lang = get_user_language(user_id) if user_id else 'es'
-        
-        # Открываем изображение
-        image = Image.open(io.BytesIO(image_bytes))
-        
-        if lang == 'es':
-            prompt = f"""Analiza esta imagen detalladamente.
-
-{f'CONTEXTO: {query}' if query else ''}
-
-Describe:
-1. Qué se ve en la imagen
-2. Información relevante (texto, números, tablas, etc.)
-3. Conclusiones financieras si aplica
-
-Sé preciso y profesional (máx 300 palabras)."""
-        else:
-            prompt = f"""Analysiere dieses Bild detailliert.
-
-{f'KONTEXT: {query}' if query else ''}
-
-Beschreibe:
-1. Was im Bild zu sehen ist
-2. Relevante Informationen (Text, Zahlen, Tabellen, etc.)
-3. Finanzielle Schlussfolgerungen falls zutreffend
-
-Sei präzise und professionell (max 300 Wörter)."""
-        
-        response = model_vision.generate_content([prompt, image])
-        return response.text
-        
-    except Exception as e:
-        logger.error(f"Error analyze image: {e}")
-        lang = get_user_language(user_id) if user_id else 'es'
-        return get_text(lang, 'error', error=str(e)[:100])
-
-async def process_file(file_bytes: bytes, filename: str, query: str = "", user_id: int = None) -> str:
-    """Обработка файла (PDF, DOCX, TXT)"""
-    try:
-        lang = get_user_language(user_id) if user_id else 'es'
-        file_ext = Path(filename).suffix.lower()
-        
-        # Сохраняем временный файл
-        temp_path = f"/tmp/{filename}"
-        with open(temp_path, 'wb') as f:
-            f.write(file_bytes)
-        
-        # Извлекаем текст
-        text = ""
-        if file_ext == '.pdf':
-            text = extract_text_from_pdf(temp_path)
-        elif file_ext in ['.docx', '.doc']:
-            text = extract_text_from_docx(temp_path)
-        elif file_ext == '.txt':
-            text = file_bytes.decode('utf-8', errors='ignore')
-        
-        # Удаляем временный файл
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        
-        if not text or len(text) < 10:
-            return get_text(lang, 'file_error', error="No se pudo extraer texto" if lang == 'es' else "Text konnte nicht extrahiert werden")
-        
-        # Генерируем ответ на основе содержимого файла
-        chat = get_chat_session(user_id, lang)
-        
-        if lang == 'es':
-            prompt = f"""ARCHIVO: {filename}
-
-CONTENIDO:
-{text[:2000]}
-
-{f'PREGUNTA DEL USUARIO: {query}' if query else ''}
-
-Analiza el contenido del archivo y:
-1. Resume los puntos principales
-2. Extrae información clave
-3. {f'Responde a la pregunta del usuario' if query else 'Proporciona conclusiones relevantes'}
-
-Máximo 250 palabras."""
-        else:
-            prompt = f"""DATEI: {filename}
-
-INHALT:
-{text[:2000]}
-
-{f'BENUTZERFRAGE: {query}' if query else ''}
-
-Analysiere den Dateiinhalt und:
-1. Fasse die Hauptpunkte zusammen
-2. Extrahiere wichtige Informationen
-3. {f'Beantworte die Benutzerfrage' if query else 'Gib relevante Schlussfolgerungen'}
-
-Maximal 250 Wörter."""
-        
-        response = chat.send_message(prompt)
-        return response.text
-        
-    except Exception as e:
-        logger.error(f"Error process file: {e}")
-        lang = get_user_language(user_id) if user_id else 'es'
-        return get_text(lang, 'file_error', error=str(e)[:100])
+                dest_path = os.path.join(dest_folder, name)
+                if 'size' in file and int(file['size']) > 10 * 1024 * 1024:
+                    logger.warning(f"Skipping large file: {name}")
+                    continue
+                download_file(file_id, dest_path)
+        page_token = results.get('nextPageToken')
+        if not page_token:
+            break
 
 # ============================================================================
 # DATABASE
 # ============================================================================
-
 Base = declarative_base()
-
 class User(Base):
     __tablename__ = 'users'
-    
     id = Column(BigInteger, primary_key=True)
     username = Column(String(255))
     first_name = Column(String(255))
     is_team = Column(Boolean, default=False)
-    language = Column(String(2), default='es')  # 'es' или 'de'
+    language = Column(String(2), default='es')
     registered = Column(DateTime, default=datetime.now)
     last_active = Column(DateTime, default=datetime.now)
     query_count = Column(Integer, default=0)
 
 class Query(Base):
     __tablename__ = 'queries'
-    
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(BigInteger)
     query = Column(Text)
@@ -786,7 +628,6 @@ class Query(Base):
 
 engine = None
 Session = None
-
 if DATABASE_URL:
     try:
         engine = create_engine(DATABASE_URL, echo=False, pool_pre_ping=True)
@@ -800,7 +641,6 @@ if DATABASE_URL:
 # ============================================================================
 # STORAGE
 # ============================================================================
-
 class DataStorage:
     def __init__(self):
         self.users_file = 'users.json'
@@ -808,7 +648,6 @@ class DataStorage:
             self.users = self.load_users()
         else:
             self.users = {}
-
     def load_users(self) -> Dict:
         try:
             if os.path.exists(self.users_file):
@@ -818,7 +657,6 @@ class DataStorage:
             return {}
         except:
             return {}
-
     def save_users(self):
         if engine:
             return
@@ -827,7 +665,6 @@ class DataStorage:
                 json.dump(self.users, f, indent=2)
         except:
             pass
-
     def get_user(self, user_id: int) -> Dict:
         if engine:
             session = Session()
@@ -838,11 +675,8 @@ class DataStorage:
                     session.add(user)
                     session.commit()
                     session.refresh(user)
-                
-                # Синхронизируем язык с памятью
                 if user.language:
                     user_languages[user_id] = user.language
-                
                 return {
                     'id': user.id,
                     'username': user.username or '',
@@ -868,7 +702,6 @@ class DataStorage:
                 }
                 self.save_users()
             return self.users[user_id]
-
     def update_user(self, user_id: int, data: Dict):
         if engine:
             session = Session()
@@ -877,17 +710,12 @@ class DataStorage:
                 if not user:
                     user = User(id=user_id)
                     session.add(user)
-                
                 for key, value in data.items():
                     setattr(user, key, value)
-                
                 user.last_active = datetime.now()
                 session.commit()
-                
-                # Синхронизируем язык
                 if 'language' in data:
                     user_languages[user_id] = data['language']
-                    
             except:
                 session.rollback()
             finally:
@@ -898,13 +726,11 @@ class DataStorage:
             if 'language' in data:
                 user_languages[user_id] = data['language']
             self.save_users()
-
     def is_team_member(self, user_id: int) -> bool:
         if user_id == CREATOR_ID:
             return True
         user = self.get_user(user_id)
         return user.get('is_team', False)
-
     def save_query(self, user_id: int, query: str, response: str):
         if not engine:
             return
@@ -917,7 +743,6 @@ class DataStorage:
             session.rollback()
         finally:
             session.close()
-
     def get_all_team_members(self) -> List[Dict]:
         if engine:
             session = Session()
@@ -941,7 +766,6 @@ storage = DataStorage()
 # ============================================================================
 # UTILS
 # ============================================================================
-
 def identify_creator(user):
     global CREATOR_ID
     if user.username == CREATOR_USERNAME and CREATOR_ID is None:
@@ -961,60 +785,38 @@ def get_main_keyboard(lang: str = 'es') -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ============================================================================
-# КОМАНДЫ
+# COMMANDS
 # ============================================================================
-
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     identify_creator(user)
-    
-    # Определяем язык из сообщения если есть
     user_data = storage.get_user(user.id)
     lang = user_data.get('language', 'es')
-    
     storage.update_user(user.id, {
         'username': user.username or '',
         'first_name': user.first_name or '',
         'language': lang
     })
-    
     text = get_text(lang, 'welcome', name=user.first_name, creator=CREATOR_USERNAME)
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard(lang))
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     text = get_text(lang, 'help')
-    
     if is_creator(user_id):
-        if lang == 'es':
-            text += """
-
-<b>⚙️ Admin:</b>
-/grant_team [ID] - Añadir miembro
-/reload - Recargar docs"""
-        else:
-            text += """
-
-<b>⚙️ Admin:</b>
-/grant_team [ID] - Mitglied hinzufügen
-/reload - Docs neu laden"""
-    
+        text += "\n<b>⚙️ Admin:</b>\n/grant_team [ID] - Añadir miembro\n/reload - Recargar docs" if lang == 'es' else "\n<b>⚙️ Admin:</b>\n/grant_team [ID] - Mitglied hinzufügen\n/reload - Docs neu laden"
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Выбор языка"""
     user_id = update.effective_user.id
     current_lang = get_user_language(user_id)
-    
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es"),
             InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")
         ]
     ])
-    
     await update.message.reply_text(
         get_text(current_lang, 'choose_lang'),
         parse_mode=ParseMode.HTML,
@@ -1022,24 +824,16 @@ async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка выбора языка"""
     query = update.callback_query
     await query.answer()
-    
     user_id = query.from_user.id
-    new_lang = query.data.split('_')[1]  # 'lang_es' -> 'es'
-    
-    # Обновляем язык
+    new_lang = query.data.split('_')[1]
     set_user_language(user_id, new_lang)
     storage.update_user(user_id, {'language': new_lang})
-    
-    # Отправляем подтверждение
     await query.edit_message_text(
         get_text(new_lang, 'lang_changed'),
         parse_mode=ParseMode.HTML
     )
-    
-    # Обновляем клавиатуру
     await query.message.reply_text(
         "✅",
         reply_markup=get_main_keyboard(new_lang)
@@ -1048,38 +842,27 @@ async def lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     if not context.args:
         await update.message.reply_text(get_text(lang, 'no_query'))
         return
-    
     query = ' '.join(context.args)
     await update.message.chat.send_action("typing")
-    
     try:
-        # Поиск в документах
-        context_docs = search_rag(query, n_results=3)
-        
-        # Генерация ответа
+        context_docs = search_rag(query)
         response = await generate_text_response(query, user_id=user_id, context_docs=context_docs)
-        
         storage.save_query(user_id, query, response)
-        
         user = storage.get_user(user_id)
         storage.update_user(user_id, {'query_count': user.get('query_count', 0) + 1})
-        
         search_label = "🔍 <b>Consulta:</b>" if lang == 'es' else "🔍 <b>Anfrage:</b>"
         await update.message.reply_text(f"{search_label} {query}\n\n{response}", parse_mode=ParseMode.HTML)
-        
     except Exception as e:
-        logger.error(f"Error search: {e}")
+        logger.error(f"Search error: {e}")
         await update.message.reply_text(get_text(lang, 'error', error=str(e)))
 
 async def docs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     count = collection.count() if collection else 0
-    
     text = get_text(lang, 'docs', count=count)
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -1087,14 +870,11 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     user = storage.get_user(user_id)
-    
     uptime = datetime.now() - BOT_START_TIME
     uptime_str = f"{uptime.days}d {uptime.seconds//3600}h"
     doc_count = collection.count() if collection else 0
-    
     access = "✅ Equipo" if storage.is_team_member(user_id) else ("⏳ Sin acceso" if lang == 'es' else "⏳ Kein Zugang")
     db_type = "PostgreSQL" if engine else "JSON"
-    
     text = get_text(lang, 'stats',
         name=user.get('first_name', 'N/A'),
         username=user.get('username', 'N/A'),
@@ -1104,53 +884,45 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uptime=uptime_str,
         db=db_type
     )
-    
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     if not storage.is_team_member(user_id):
         await update.message.reply_text(get_text(lang, 'team_only'))
         return
-    
     team = storage.get_all_team_members()
-    
     if not team:
-        no_members = "👥 Sin miembros aún." if lang == 'es' else "👥 Noch keine Mitglieder."
-        await update.message.reply_text(no_members)
+        await update.message.reply_text("👥 No members yet." if lang == 'es' else "👥 Noch keine Mitglieder.")
         return
-    
     members_text = ""
     for i, m in enumerate(team, 1):
         name = m.get('first_name', 'N/A')
         username = m.get('username', 'N/A')
         queries = m.get('query_count', 0)
         label = "Consultas:" if lang == 'es' else "Anfragen:"
-        members_text += f"{i}. <b>{name}</b> (@{username})\n   {label} {queries}\n\n"
-    
+        members_text += f"{i}. <b>{name}</b> (@{username})\n {label} {queries}\n\n"
     text = get_text(lang, 'team', count=len(team), members=members_text)
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     text = get_text(lang, 'info')
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     if not is_creator(user_id):
         await update.message.reply_text(get_text(lang, 'admin_only'))
         return
-    
     msg = await update.message.reply_text(get_text(lang, 'reloading'))
-    
     try:
+        if drive_service:
+            logger.info("Downloading from Drive...")
+            download_folder(DRIVE_FOLDER_ID)
         count = load_documents_to_rag()
         chunks = collection.count() if collection else 0
         await msg.edit_text(
@@ -1163,149 +935,77 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     if not is_creator(user_id):
         await update.message.reply_text(get_text(lang, 'admin_only'))
         return
-    
     if not context.args:
-        usage = "❓ /grant_team [user_id]"
-        await update.message.reply_text(usage)
+        await update.message.reply_text("❓ /grant_team [user_id]")
         return
-    
     try:
         target_id = int(context.args[0])
         storage.update_user(target_id, {'is_team': True})
-        
         await update.message.reply_text(get_text(lang, 'user_added', id=target_id))
-        
     except ValueError:
         await update.message.reply_text(get_text(lang, 'invalid_id'))
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
-    
     clear_chat_session(user_id)
     await update.message.reply_text(get_text(lang, 'cleared'))
 
 # ============================================================================
 # MESSAGE HANDLERS
 # ============================================================================
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка изображений"""
-    user = update.effective_user
-    identify_creator(user)
-    user_id = user.id
-    lang = get_user_language(user_id)
-    
-    storage.update_user(user_id, {
-        'username': user.username or '',
-        'first_name': user.first_name or ''
-    })
-    
-    # Получаем caption как контекст
-    caption = update.message.caption or ""
-    
-    await update.message.chat.send_action("typing")
-    await update.message.reply_text(get_text(lang, 'analyzing_image'))
-    
-    try:
-        # Скачиваем фото (берём самое большое)
-        photo = update.message.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
-        image_bytes = await file.download_as_bytearray()
-        
-        # Анализируем
-        response = await analyze_image(bytes(image_bytes), query=caption, user_id=user_id)
-        
-        storage.save_query(user_id, f"[IMAGE] {caption}", response)
-        
-        user_data = storage.get_user(user_id)
-        storage.update_user(user_id, {'query_count': user_data.get('query_count', 0) + 1})
-        
-        await update.message.reply_text(response, parse_mode=ParseMode.HTML)
-        
-    except Exception as e:
-        logger.error(f"Error handle photo: {e}")
-        await update.message.reply_text(get_text(lang, 'error', error=str(e)[:100]))
-
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка файлов"""
     user = update.effective_user
     identify_creator(user)
     user_id = user.id
     lang = get_user_language(user_id)
-    
     storage.update_user(user_id, {
         'username': user.username or '',
         'first_name': user.first_name or ''
     })
-    
     document = update.message.document
     filename = document.file_name
     file_ext = Path(filename).suffix.lower()
-    
-    # Проверяем тип файла
     if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
-        unsupported = "⚠️ Tipo de archivo no soportado. Envía: PDF, DOCX, TXT" if lang == 'es' else "⚠️ Dateityp nicht unterstützt. Sende: PDF, DOCX, TXT"
+        unsupported = "⚠️ Tipo no soportado. Envía PDF, DOCX, TXT" if lang == 'es' else "⚠️ Dateityp nicht unterstützt. Sende PDF, DOCX, TXT"
         await update.message.reply_text(unsupported)
         return
-    
     caption = update.message.caption or ""
-    
     await update.message.chat.send_action("typing")
     await update.message.reply_text(get_text(lang, 'processing_file'))
-    
     try:
-        # Скачиваем файл
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
-        
-        # Обрабатываем
         response = await process_file(bytes(file_bytes), filename, query=caption, user_id=user_id)
-        
         storage.save_query(user_id, f"[FILE: {filename}] {caption}", response)
-        
         user_data = storage.get_user(user_id)
         storage.update_user(user_id, {'query_count': user_data.get('query_count', 0) + 1})
-        
         result_text = get_text(lang, 'file_processed', filename=filename, response=response)
         await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
-        
     except Exception as e:
-        logger.error(f"Error handle document: {e}")
+        logger.error(f"Document error: {e}")
         await update.message.reply_text(get_text(lang, 'file_error', error=str(e)[:100]))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка текстовых сообщений"""
     user = update.effective_user
     identify_creator(user)
-    
     user_id = user.id
     text = update.message.text
-    
-    # Определяем или получаем язык
     user_data = storage.get_user(user_id)
     current_lang = user_data.get('language', 'es')
-    
-    # Автоопределение языка из сообщения
     detected_lang = detect_language(text)
     if detected_lang != current_lang:
-        # Обновляем язык если обнаружен другой
         set_user_language(user_id, detected_lang)
         storage.update_user(user_id, {'language': detected_lang})
         current_lang = detected_lang
-    
     storage.update_user(user_id, {
         'username': user.username or '',
         'first_name': user.first_name or ''
     })
-    
-    # Обработка кнопок меню
     kb = TRANSLATIONS[current_lang]['keyboard']
-    
     if text == kb['consult']:
         await update.message.reply_text(get_text(current_lang, 'ask_question'))
         return
@@ -1324,49 +1024,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == kb['help']:
         await help_command(update, context)
         return
-    
-    # Обычное текстовое сообщение - генерируем ответ
     if text and not text.startswith('/'):
         await update.message.chat.send_action("typing")
-        
         try:
-            # Поиск в документах
-            context_docs = search_rag(text, n_results=3)
-            
-            # Генерация ответа
+            context_docs = search_rag(text)
             response = await generate_text_response(text, user_id=user_id, context_docs=context_docs)
-            
             storage.save_query(user_id, text, response)
-            
             user = storage.get_user(user_id)
             storage.update_user(user_id, {'query_count': user.get('query_count', 0) + 1})
-            
             await update.message.reply_text(response, parse_mode=ParseMode.HTML)
-            
         except Exception as e:
-            logger.error(f"Error handle message: {e}")
+            logger.error(f"Message error: {e}")
             await update.message.reply_text(get_text(current_lang, 'error', error=str(e)))
 
 # ============================================================================
 # MAIN
 # ============================================================================
-
 def main():
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA - Asistente Oscar Casco v3.0 ENHANCED")
+    logger.info("🚀 PIPILA v4.0 OPTIMIZED")
     logger.info("=" * 60)
-    
-    logger.info("📚 Cargando documentos...")
+    logger.info("📚 Loading documents...")
+    if drive_service:
+        download_folder(DRIVE_FOLDER_ID)
     docs_loaded = load_documents_to_rag()
-    logger.info(f"✅ {docs_loaded} docs cargados")
-    
-    # ✅ FIX для Conflict error - используем drop_pending_updates=True
+    logger.info(f"✅ {docs_loaded} docs loaded")
     application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Команды
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("lang", lang_command))
+    application.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang_"))
     application.add_handler(CommandHandler("search", search_command))
     application.add_handler(CommandHandler("docs", docs_command))
     application.add_handler(CommandHandler("stats", stats_command))
@@ -1375,28 +1062,18 @@ def main():
     application.add_handler(CommandHandler("reload", reload_command))
     application.add_handler(CommandHandler("grant_team", grant_team_command))
     application.add_handler(CommandHandler("clear", clear_command))
-    
-    # Callback для выбора языка
-    application.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang_"))
-    
-    # Обработчики контента
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
     logger.info("=" * 60)
-    logger.info("✅ PIPILA iniciado (v3.0 ENHANCED)")
-    logger.info(f"🤖 AI: Gemini 2.5 Flash + Vision")
+    logger.info("✅ PIPILA started")
+    logger.info(f"🤖 AI: Gemini 2.5 Flash")
     logger.info(f"📚 Docs: {docs_loaded}")
     logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
     logger.info(f"🌍 Languages: ES, DE")
-    logger.info(f"📷 Image support: ✅")
     logger.info(f"📄 File support: ✅ (PDF, DOCX, TXT)")
     logger.info("=" * 60)
-    
-    # ✅ FIX: drop_pending_updates=True решает Conflict error
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)  # Fix conflict
 
 if __name__ == '__main__':
     main()
