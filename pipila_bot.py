@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 5.1 - FIXED (Async webhook + Fallback download)
+VERSION: 5.2 - OPTIMIZED (Background document loading)
 - Multilingual (ES/DE) with auto-detect
 - RAG with ChromaDB
 - Downloads from Dropbox with fallback
-- Fixed async issues
+- Background document loading to avoid timeout
 """
 import os
 import sys
@@ -112,7 +112,7 @@ Escribe directamente - responderé
 {members}""",
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
-<b>📖 Versión:</b> 5.1 (FIXED)
+<b>📖 Versión:</b> 5.2 (OPTIMIZED)
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
@@ -210,7 +210,7 @@ Direkt schreiben - ich antworte
 {members}""",
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
-<b>📖 Version:</b> 5.1 (FIXED)
+<b>📖 Version:</b> 5.2 (OPTIMIZED)
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
@@ -1053,20 +1053,30 @@ def try_download_documents():
     except Exception as e:
         logger.error(f"❌ Fallback download error: {e}")
 
+async def load_documents_in_background():
+    """Load documents into RAG in background"""
+    logger.info("📚 Starting background document loading...")
+    await asyncio.sleep(5)  # Wait for bot to fully start
+    
+    try:
+        docs_loaded = load_documents_to_rag()
+        logger.info(f"✅ Background loading complete: {docs_loaded} docs, {collection.count() if collection else 0} chunks")
+    except Exception as e:
+        logger.error(f"❌ Background loading error: {e}")
+
 # ============================================================================
 # MAIN
 # ============================================================================
 async def main():
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v5.1 FIXED")
+    logger.info("🚀 PIPILA v5.2 OPTIMIZED")
     logger.info("=" * 60)
     
-    # Try to download documents if needed
+    # Try to download documents if needed (quick check only)
     try_download_documents()
     
-    logger.info("📚 Loading documents into RAG...")
-    docs_loaded = load_documents_to_rag()
-    logger.info(f"✅ {docs_loaded} docs loaded")
+    # ✅ NEW: Don't wait for full document loading - do it in background
+    logger.info("📚 Bot starting... Documents will load in background")
     
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
@@ -1085,14 +1095,16 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     logger.info("=" * 60)
-    logger.info("✅ PIPILA started")
+    logger.info("✅ PIPILA started (loading docs in background)")
     logger.info(f"🤖 AI: Gemini 2.5 Flash")
-    logger.info(f"📚 Docs: {docs_loaded}")
-    logger.info(f"📊 Chunks: {collection.count() if collection else 0}")
+    logger.info(f"📊 Initial chunks: {collection.count() if collection else 0}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
     logger.info(f"🌍 Languages: ES, DE")
     logger.info(f"📄 File support: ✅ (PDF, DOCX, TXT)")
     logger.info("=" * 60)
+    
+    # ✅ Start background document loading
+    asyncio.create_task(load_documents_in_background())
     
     # ✅ FIXED: Proper async webhook deletion
     await application.bot.delete_webhook(drop_pending_updates=True)
