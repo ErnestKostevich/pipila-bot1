@@ -7,11 +7,10 @@ psycopg2-binary==2.9.10
 chromadb==0.5.23
 sentence-transformers==3.3.1
 
-# Обработка документов
+# Document Processing
 PyPDF2==3.0.1
 python-docx==1.1.2
 python-dotenv==1.0.1
-gdown>=5.1.0
 
-# ✅ НОВОЕ: Обработка изображений
+# Image Processing (optional)
 Pillow>=10.0.0
