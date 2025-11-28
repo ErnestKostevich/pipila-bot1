@@ -7,7 +7,7 @@ VERSION: 4.0 - FULL OPTIMIZED (with recursive Google Drive download)
 - RAG with ChromaDB
 - Downloads 1GB folder from Drive recursively on start/reload
 - Memory optimized: small chunks, limits, skip large files
-- Fixed Telegram conflict by using webhook with FastAPI
+- Fixed Telegram conflict with polling and drop_pending_updates
 - AI: Exactly Gemini 2.5 Flash as in original code
 """
 import os
@@ -31,9 +31,6 @@ import docx
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2.service_account import Credentials
-# For webhook
-from fastapi import FastAPI, Request, HTTPException
-import uvicorn
 
 # ============================================================================
 # CONFIG
@@ -47,8 +44,6 @@ CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
 BOT_START_TIME = datetime.now()
 DOCUMENTS_FOLDER = "./documents"
-PORT = int(os.getenv('PORT', 8080))
-WEBHOOK_URL = os.getenv('WEBHOOK_URL')  # e.g., https://your-service.onrender.com
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -59,8 +54,6 @@ logger = logging.getLogger(__name__)
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("❌ BOT_TOKEN or GEMINI_API_KEY not found")
-if not WEBHOOK_URL:
-    raise ValueError("❌ WEBHOOK_URL not set in env")
 if DRIVE_FOLDER_ID and GOOGLE_SERVICE_ACCOUNT:
     try:
         SERVICE_ACCOUNT_INFO = json.loads(GOOGLE_SERVICE_ACCOUNT)
@@ -610,26 +603,6 @@ def download_folder(folder_id: str, dest_folder: str = DOCUMENTS_FOLDER):
         if not page_token:
             break
 
-async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    if not is_creator(user_id):
-        await update.message.reply_text(get_text(lang, 'admin_only'))
-        return
-    msg = await update.message.reply_text(get_text(lang, 'reloading'))
-    try:
-        if drive_service:
-            logger.info("Downloading from Drive...")
-            download_folder(DRIVE_FOLDER_ID)
-        count = load_documents_to_rag()
-        chunks = collection.count() if collection else 0
-        await msg.edit_text(
-            get_text(lang, 'reloaded', docs=count, chunks=chunks),
-            parse_mode=ParseMode.HTML
-        )
-    except Exception as e:
-        await msg.edit_text(get_text(lang, 'error', error=str(e)))
-
 # ============================================================================
 # DATABASE
 # ============================================================================
@@ -939,6 +912,26 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = get_text(lang, 'info')
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
+async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = get_user_language(user_id)
+    if not is_creator(user_id):
+        await update.message.reply_text(get_text(lang, 'admin_only'))
+        return
+    msg = await update.message.reply_text(get_text(lang, 'reloading'))
+    try:
+        if drive_service:
+            logger.info("Downloading from Drive...")
+            download_folder(DRIVE_FOLDER_ID)
+        count = load_documents_to_rag()
+        chunks = collection.count() if collection else 0
+        await msg.edit_text(
+            get_text(lang, 'reloaded', docs=count, chunks=chunks),
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        await msg.edit_text(get_text(lang, 'error', error=str(e)))
+
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
@@ -1045,47 +1038,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(get_text(current_lang, 'error', error=str(e)))
 
 # ============================================================================
-# FASTAPI FOR WEBHOOK
-# ============================================================================
-app = FastAPI()
-
-application = Application.builder().token(BOT_TOKEN).build()
-
-# Add all handlers
-application.add_handler(CommandHandler("start", start_command))
-application.add_handler(CommandHandler("help", help_command))
-application.add_handler(CommandHandler("lang", lang_command))
-application.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang_"))
-application.add_handler(CommandHandler("search", search_command))
-application.add_handler(CommandHandler("docs", docs_command))
-application.add_handler(CommandHandler("stats", stats_command))
-application.add_handler(CommandHandler("team", team_command))
-application.add_handler(CommandHandler("info", info_command))
-application.add_handler(CommandHandler("reload", reload_command))
-application.add_handler(CommandHandler("grant_team", grant_team_command))
-application.add_handler(CommandHandler("clear", clear_command))
-application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-@app.post("/")
-async def webhook(request: Request):
-    try:
-        update_json = await request.json()
-        update = Update.de_json(update_json, application.bot)
-        await application.process_update(update)
-        return {"ok": True}
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
-
-async def set_webhook():
-    await application.bot.set_webhook(url=WEBHOOK_URL)
-    logger.info(f"Webhook set to {WEBHOOK_URL}")
-
-# ============================================================================
 # MAIN
 # ============================================================================
-async def startup():
+def main():
     logger.info("=" * 60)
     logger.info("🚀 PIPILA v4.0 OPTIMIZED")
     logger.info("=" * 60)
@@ -1094,8 +1049,21 @@ async def startup():
         download_folder(DRIVE_FOLDER_ID)
     docs_loaded = load_documents_to_rag()
     logger.info(f"✅ {docs_loaded} docs loaded")
-    await application.initialize()
-    await set_webhook()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("lang", lang_command))
+    application.add_handler(CallbackQueryHandler(lang_callback, pattern="^lang_"))
+    application.add_handler(CommandHandler("search", search_command))
+    application.add_handler(CommandHandler("docs", docs_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("team", team_command))
+    application.add_handler(CommandHandler("info", info_command))
+    application.add_handler(CommandHandler("reload", reload_command))
+    application.add_handler(CommandHandler("grant_team", grant_team_command))
+    application.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("=" * 60)
     logger.info("✅ PIPILA started")
     logger.info(f"🤖 AI: Gemini 2.5 Flash")
@@ -1105,8 +1073,8 @@ async def startup():
     logger.info(f"🌍 Languages: ES, DE")
     logger.info(f"📄 File support: ✅ (PDF, DOCX, TXT)")
     logger.info("=" * 60)
+    application.bot.delete_webhook(drop_pending_updates=True)  # Clear any old webhook
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30, poll_interval=1)  # Fixed polling
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(startup())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    main()
