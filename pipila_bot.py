@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 8.0 ULTIMATE - 10000% GUARANTEED TO WORK
-✅ start.sh handles document download
+VERSION: 8.1 FINAL - DIRECT COMMAND EXECUTION
+✅ No bash scripts - direct Python execution
 ✅ Background document loading  
 ✅ Works on Python 3.13
 ✅ Works on Render.com
@@ -126,7 +126,7 @@ Escribe directamente - responderé
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 8.0 ULTIMATE
+<b>📖 Versión:</b> 8.1 FINAL
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
@@ -240,7 +240,7 @@ Direkt schreiben - ich antworte
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
 
-<b>📖 Version:</b> 8.0 ULTIMATE
+<b>📖 Version:</b> 8.1 FINAL
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
@@ -959,7 +959,7 @@ async def load_documents_background():
 def main():
     """Main function - NO async, NO asyncio.run() - Direct run_polling()"""
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v8.0 ULTIMATE - 10000% GUARANTEED")
+    logger.info("🚀 PIPILA v8.1 FINAL - DIRECT EXECUTION")
     logger.info("=" * 60)
     
     # Check documents folder
