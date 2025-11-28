@@ -263,9 +263,6 @@ def download_and_extract():
         log("")
         log("Total files downloaded (all types): " + str(sum(file_types.values())))
         log("=" * 70)
-        
-        # Don't exit with error - let the bot start anyway
-        # sys.exit(1)
 
 if __name__ == "__main__":
     try:
