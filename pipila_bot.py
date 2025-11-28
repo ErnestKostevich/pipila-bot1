@@ -2,13 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 4.0 - FULL OPTIMIZED (with recursive Google Drive download)
+VERSION: 5.0 - SIMPLIFIED (Dropbox only, no Google Drive)
 - Multilingual (ES/DE) with auto-detect
 - RAG with ChromaDB
-- Downloads 1GB folder from Drive recursively on start/reload
-- Memory optimized: small chunks, limits, skip large files
-- Fixed Telegram conflict with polling and drop_pending_updates
-- AI: Exactly Gemini 2.5 Flash as in original code
+- Downloads from Dropbox on start
+- No complicated Google auth
 """
 import os
 import json
@@ -27,18 +25,12 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import chromadb
 import PyPDF2
 import docx
-# Google Drive
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload
-from google.oauth2.service_account import Credentials
 
 # ============================================================================
 # CONFIG
 # ============================================================================
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-GOOGLE_SERVICE_ACCOUNT = os.getenv('GOOGLE_SERVICE_ACCOUNT')  # JSON string
-DRIVE_FOLDER_ID = os.getenv('DRIVE_FOLDER_ID')  # e.g., '1vK_GFk3M3vA4vQksZGnGCM027sv39Rz4'
 DATABASE_URL = os.getenv('DATABASE_URL')
 CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
@@ -54,17 +46,6 @@ logger = logging.getLogger(__name__)
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
     raise ValueError("❌ BOT_TOKEN or GEMINI_API_KEY not found")
-if DRIVE_FOLDER_ID and GOOGLE_SERVICE_ACCOUNT:
-    try:
-        SERVICE_ACCOUNT_INFO = json.loads(GOOGLE_SERVICE_ACCOUNT)
-    except json.JSONDecodeError:
-        raise ValueError("❌ Invalid GOOGLE_SERVICE_ACCOUNT JSON")
-    SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-    credentials = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
-    drive_service = build('drive', 'v3', credentials=credentials)
-else:
-    logger.warning("⚠️ Drive env vars missing - skipping download")
-    drive_service = None
 
 # ============================================================================
 # MULTILANGUAGE
@@ -84,7 +65,7 @@ Escribe tu pregunta directamente o envía:
 /help - Ayuda
 <b>📖 Áreas:</b>
 DVAG • Generali • Badenia • Advocard
-<b>👨‍💻 Creado por:</b> @{creator}""",
+<b>👨‍💼 Creado por:</b> @{creator}""",
         'help': """📚 <b>COMANDOS PIPILA</b>
 <b>🔍 Consultas:</b>
 /search [pregunta] - Buscar en docs
@@ -102,7 +83,7 @@ Escribe directamente - responderé
 "Explica Badenia"
 📄 [archivo PDF]""",
         'docs': """📚 <b>DOCUMENTOS EQUIPO</b>
-📊 Chunks: <b>{count}</b>
+📊 Chunks en RAG: <b>{count}</b>
 <b>📂 Categorías:</b>
 • DVAG
 • Generali
@@ -129,7 +110,7 @@ Escribe directamente - responderé
 {members}""",
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
-<b>📖 Versión:</b> 4.0 (OPTIMIZED)
+<b>📖 Versión:</b> 5.0 (SIMPLIFIED)
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
@@ -139,6 +120,7 @@ Escribe directamente - responderé
 • Gemini 2.5 Flash
 • ChromaDB + RAG
 • PostgreSQL
+• Dropbox Storage
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Cliente:</b> Oscar Casco""",
         'no_docs': '⚠️ No hay documentos cargados. Contacta al admin.',
@@ -151,7 +133,7 @@ Escribe directamente - responderé
         'no_query': '❓ Uso: /search [consulta]\n\nEjemplo: /search productos DVAG',
         'invalid_id': '❌ ID inválido',
         'user_added': '✅ Usuario {id} añadido al equipo!',
-        'reloading': '🔄 Recargando documentos...',
+        'reloading': '🔄 Recargando documentos desde Dropbox...',
         'reloaded': '✅ <b>Documentos recargados</b>\n\n📚 Documentos: <b>{docs}</b>\n📊 Chunks: <b>{chunks}</b>',
         'lang_changed': '✅ Idioma cambiado a: 🇪🇸 Español',
         'choose_lang': '🌍 <b>Selecciona idioma:</b>',
@@ -181,7 +163,7 @@ Stelle direkt deine Frage oder sende:
 /help - Hilfe
 <b>📖 Bereiche:</b>
 DVAG • Generali • Badenia • Advocard
-<b>👨‍💻 Erstellt von:</b> @{creator}""",
+<b>👨‍💼 Erstellt von:</b> @{creator}""",
         'help': """📚 <b>PIPILA BEFEHLE</b>
 <b>🔍 Anfragen:</b>
 /search [Frage] - In Docs suchen
@@ -199,7 +181,7 @@ Direkt schreiben - ich antworte
 "Erkläre Badenia"
 📄 [PDF Datei]""",
         'docs': """📚 <b>TEAM DOKUMENTE</b>
-📊 Chunks: <b>{count}</b>
+📊 Chunks in RAG: <b>{count}</b>
 <b>📂 Kategorien:</b>
 • DVAG
 • Generali
@@ -226,7 +208,7 @@ Direkt schreiben - ich antworte
 {members}""",
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
-<b>📖 Version:</b> 4.0 (OPTIMIZED)
+<b>📖 Version:</b> 5.0 (SIMPLIFIED)
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
@@ -236,6 +218,7 @@ Direkt schreiben - ich antworte
 • Gemini 2.5 Flash
 • ChromaDB + RAG
 • PostgreSQL
+• Dropbox Storage
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Kunde:</b> Oscar Casco""",
         'no_docs': '⚠️ Keine Dokumente geladen. Kontaktiere den Admin.',
@@ -248,7 +231,7 @@ Direkt schreiben - ich antworte
         'no_query': '❓ Verwendung: /search [Anfrage]\n\nBeispiel: /search DVAG Produkte',
         'invalid_id': '❌ Ungültige ID',
         'user_added': '✅ Benutzer {id} zum Team hinzugefügt!',
-        'reloading': '🔄 Lade Dokumente neu...',
+        'reloading': '🔄 Lade Dokumente von Dropbox neu...',
         'reloaded': '✅ <b>Dokumente neu geladen</b>\n\n📚 Dokumente: <b>{docs}</b>\n📊 Chunks: <b>{chunks}</b>',
         'lang_changed': '✅ Sprache geändert zu: 🇩🇪 Deutsch',
         'choose_lang': '🌍 <b>Sprache wählen:</b>',
@@ -488,22 +471,28 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[st
     return chunks
 
 def load_documents_to_rag(documents_folder: str = DOCUMENTS_FOLDER) -> int:
+    """Load documents from folder into ChromaDB"""
     if not collection:
         logger.error("ChromaDB not available")
         return 0
     if not os.path.exists(documents_folder):
         logger.warning(f"❌ Folder {documents_folder} not exists")
         return 0
+    
     documents_loaded = 0
     total_chunks = 0
+    
     for root, dirs, files in os.walk(documents_folder):
         for file in files:
             file_path = os.path.join(root, file)
             file_ext = Path(file).suffix.lower()
+            
             try:
-                if os.path.getsize(file_path) > 10 * 1024 * 1024:  # Skip large files
+                # Skip large files
+                if os.path.getsize(file_path) > 10 * 1024 * 1024:
                     logger.warning(f"Skipping large file: {file}")
                     continue
+                
                 text = ""
                 if file_ext == '.pdf':
                     text = extract_text_from_pdf(file_path)
@@ -514,11 +503,14 @@ def load_documents_to_rag(documents_folder: str = DOCUMENTS_FOLDER) -> int:
                         text = f.read()
                 else:
                     continue
+                
                 if not text or len(text) < 100:
                     continue
+                
                 chunks = chunk_text(text)
                 if not chunks:
                     continue
+                
                 for i, chunk in enumerate(chunks):
                     doc_id = f"{file}_{i}_{hash(chunk) % 10000}"
                     try:
@@ -534,15 +526,19 @@ def load_documents_to_rag(documents_folder: str = DOCUMENTS_FOLDER) -> int:
                         )
                     except:
                         pass
+                
                 documents_loaded += 1
                 total_chunks += len(chunks)
                 logger.info(f"✅ {file} ({len(chunks)} chunks)")
+                
             except Exception as e:
                 logger.error(f"Error {file}: {e}")
+    
     logger.info(f"📚 Total: {documents_loaded} docs, {total_chunks} chunks")
     return documents_loaded
 
 def search_rag(query: str, n_results: int = 3) -> List[Dict]:
+    """Search in ChromaDB RAG"""
     if not collection:
         return []
     try:
@@ -565,48 +561,10 @@ def search_rag(query: str, n_results: int = 3) -> List[Dict]:
         return []
 
 # ============================================================================
-# GOOGLE DRIVE DOWNLOAD
-# ============================================================================
-def download_file(file_id: str, dest_path: str):
-    try:
-        request = drive_service.files().get_media(fileId=file_id)
-        with open(dest_path, 'wb') as fh:
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-        logger.info(f"✅ Downloaded: {dest_path}")
-    except Exception as e:
-        logger.error(f"❌ Download error {file_id}: {e}")
-
-def download_folder(folder_id: str, dest_folder: str = DOCUMENTS_FOLDER):
-    Path(dest_folder).mkdir(parents=True, exist_ok=True)
-    query = f"'{folder_id}' in parents and trashed=false"
-    page_token = None
-    while True:
-        results = drive_service.files().list(q=query, pageSize=100, fields="nextPageToken, files(id, name, mimeType, size)", pageToken=page_token).execute()
-        files = results.get('files', [])
-        for file in files:
-            name = file['name']
-            file_id = file['id']
-            mime = file['mimeType']
-            if mime == 'application/vnd.google-apps.folder':
-                sub_folder = os.path.join(dest_folder, name)
-                download_folder(file_id, sub_folder)  # Recursive
-            else:
-                dest_path = os.path.join(dest_folder, name)
-                if 'size' in file and int(file['size']) > 10 * 1024 * 1024:
-                    logger.warning(f"Skipping large file: {name}")
-                    continue
-                download_file(file_id, dest_path)
-        page_token = results.get('nextPageToken')
-        if not page_token:
-            break
-
-# ============================================================================
 # DATABASE
 # ============================================================================
 Base = declarative_base()
+
 class User(Base):
     __tablename__ = 'users'
     id = Column(BigInteger, primary_key=True)
@@ -648,6 +606,7 @@ class DataStorage:
             self.users = self.load_users()
         else:
             self.users = {}
+    
     def load_users(self) -> Dict:
         try:
             if os.path.exists(self.users_file):
@@ -657,6 +616,7 @@ class DataStorage:
             return {}
         except:
             return {}
+    
     def save_users(self):
         if engine:
             return
@@ -665,6 +625,7 @@ class DataStorage:
                 json.dump(self.users, f, indent=2)
         except:
             pass
+    
     def get_user(self, user_id: int) -> Dict:
         if engine:
             session = Session()
@@ -702,6 +663,7 @@ class DataStorage:
                 }
                 self.save_users()
             return self.users[user_id]
+    
     def update_user(self, user_id: int, data: Dict):
         if engine:
             session = Session()
@@ -726,11 +688,13 @@ class DataStorage:
             if 'language' in data:
                 user_languages[user_id] = data['language']
             self.save_users()
+    
     def is_team_member(self, user_id: int) -> bool:
         if user_id == CREATOR_ID:
             return True
         user = self.get_user(user_id)
         return user.get('is_team', False)
+    
     def save_query(self, user_id: int, query: str, response: str):
         if not engine:
             return
@@ -743,6 +707,7 @@ class DataStorage:
             session.rollback()
         finally:
             session.close()
+    
     def get_all_team_members(self) -> List[Dict]:
         if engine:
             session = Session()
@@ -902,7 +867,7 @@ async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = m.get('username', 'N/A')
         queries = m.get('query_count', 0)
         label = "Consultas:" if lang == 'es' else "Anfragen:"
-        members_text += f"{i}. <b>{name}</b> (@{username})\n {label} {queries}\n\n"
+        members_text += f"{i}. <b>{name}</b> (@{username})\n   {label} {queries}\n\n"
     text = get_text(lang, 'team', count=len(team), members=members_text)
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
@@ -913,23 +878,38 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reload documents (admin only)"""
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     if not is_creator(user_id):
         await update.message.reply_text(get_text(lang, 'admin_only'))
         return
+    
     msg = await update.message.reply_text(get_text(lang, 'reloading'))
+    
     try:
-        if drive_service:
-            logger.info("Downloading from Drive...")
-            download_folder(DRIVE_FOLDER_ID)
+        # Run download script
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "download_gdrive_recursive.py"],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        logger.info(f"Download output: {result.stdout}")
+        if result.returncode != 0:
+            logger.error(f"Download error: {result.stderr}")
+        
+        # Reload documents into RAG
         count = load_documents_to_rag()
         chunks = collection.count() if collection else 0
+        
         await msg.edit_text(
             get_text(lang, 'reloaded', docs=count, chunks=chunks),
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
+        logger.error(f"Reload error: {e}")
         await msg.edit_text(get_text(lang, 'error', error=str(e)))
 
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1042,13 +1022,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============================================================================
 def main():
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v4.0 OPTIMIZED")
+    logger.info("🚀 PIPILA v5.0 SIMPLIFIED")
     logger.info("=" * 60)
     logger.info("📚 Loading documents...")
-    if drive_service:
-        download_folder(DRIVE_FOLDER_ID)
+    
+    # Load documents that were downloaded during build
     docs_loaded = load_documents_to_rag()
     logger.info(f"✅ {docs_loaded} docs loaded")
+    
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
@@ -1064,6 +1045,7 @@ def main():
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
     logger.info("=" * 60)
     logger.info("✅ PIPILA started")
     logger.info(f"🤖 AI: Gemini 2.5 Flash")
@@ -1073,8 +1055,9 @@ def main():
     logger.info(f"🌍 Languages: ES, DE")
     logger.info(f"📄 File support: ✅ (PDF, DOCX, TXT)")
     logger.info("=" * 60)
-    application.bot.delete_webhook(drop_pending_updates=True)  # Clear any old webhook
-    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30, poll_interval=1)  # Fixed polling
+    
+    application.bot.delete_webhook(drop_pending_updates=True)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, timeout=30, poll_interval=1)
 
 if __name__ == '__main__':
     main()
