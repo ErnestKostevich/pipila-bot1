@@ -4,10 +4,8 @@ services:
     env: python
     plan: free
     region: frankfurt
-    buildCommand: |
-      pip install -r requirements_pipila.txt
-      python download_gdrive_recursive.py
-    startCommand: python pipila_bot.py
+    buildCommand: pip install -r requirements_pipila.txt
+    startCommand: bash start.sh
     envVars:
       - key: BOT_TOKEN
         sync: false
