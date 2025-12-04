@@ -1,13 +1,10 @@
 services:
-  # ✅ CRITICAL: Use "worker" not "web" for Telegram bots!
   - type: worker
     name: pipila-bot
     runtime: python
-    plan: standard  # 2GB RAM - enough for RAG
+    plan: standard
     region: frankfurt
-    buildCommand: |
-      pip install -r requirements_pipila.txt
-      python download_documents.py
+    buildCommand: pip install -r requirements_pipila.txt && python download_documents.py
     startCommand: python pipila_bot.py
     envVars:
       - key: BOT_TOKEN
