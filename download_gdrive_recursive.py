@@ -1,324 +1,258 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔽 PIPILA - Simple Dropbox Downloader
-Works with your exact Dropbox link
-VERSION: 2.0 with detailed logging
+📥 PIPILA Document Downloader v3.0
+Robust download from Dropbox with retries
 """
 
 import os
 import sys
-import urllib.request
 import zipfile
 import shutil
+import time
+import urllib.request
+import ssl
 from pathlib import Path
 
-def log(msg):
-    """Print with flush for build logs"""
-    print(f"[DOWNLOAD] {msg}", flush=True)
-    sys.stdout.flush()
+# ============================================================================
+# CONFIG
+# ============================================================================
+# ✅ Your Dropbox direct link (dl=1 for direct download)
+DROPBOX_URL = "https://www.dropbox.com/scl/fi/gg6o8vc2dgc7ks9z8x1bx/Fuentes-de-informaci-n-RAG?rlkey=tt8cpimwv232fwk436esxhhp2&dl=1"
 
-def download_and_extract():
-    """Download ZIP from Dropbox and extract"""
+OUTPUT_DIR = "documents"
+ZIP_PATH = "/tmp/pipila_docs.zip"
+MAX_RETRIES = 3
+TIMEOUT = 600  # 10 minutes for large files
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+def log(msg):
+    print(f"[DOWNLOAD] {msg}", flush=True)
+
+def log_error(msg):
+    print(f"[ERROR] {msg}", flush=True)
+
+# ============================================================================
+# DOWNLOAD FUNCTION
+# ============================================================================
+def download_file(url, dest_path, retries=MAX_RETRIES):
+    """Download file with retries and progress"""
     
-    # ✅ Твоя ПРЯМАЯ ссылка Dropbox (заменил dl=0 на dl=1)
-    dropbox_url = "https://www.dropbox.com/scl/fi/gg6o8vc2dgc7ks9z8x1bx/Fuentes-de-informaci-n-RAG?rlkey=tt8cpimwv232fwk436esxhhp2&st=k9zfpx4z&dl=1"
-    
-    zip_path = "/tmp/documents.zip"
-    output_dir = "documents"
-    
-    log("=" * 70)
-    log("🔽 PIPILA - Downloading documents from Dropbox")
-    log("=" * 70)
-    log(f"Dropbox URL: {dropbox_url[:80]}...")
-    log(f"Temp ZIP path: {zip_path}")
-    log(f"Output directory: {output_dir}")
-    log("")
-    
-    # Удалить старую папку
-    if os.path.exists(output_dir):
-        log(f"🧹 Cleaning old folder: {output_dir}")
+    for attempt in range(1, retries + 1):
         try:
-            shutil.rmtree(output_dir)
-            log("✅ Old folder removed")
-        except Exception as e:
-            log(f"⚠️ Warning cleaning folder: {e}")
-    
-    # Создать папку
-    try:
-        os.makedirs(output_dir, exist_ok=True)
-        log(f"✅ Created directory: {output_dir}")
-    except Exception as e:
-        log(f"❌ FAILED to create directory: {e}")
-        sys.exit(1)
-    
-    # Скачать ZIP
-    log("")
-    log("📥 Starting download from Dropbox...")
-    try:
-        # Add headers to avoid being blocked
-        req = urllib.request.Request(
-            dropbox_url,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        )
-        
-        with urllib.request.urlopen(req, timeout=300) as response:
-            with open(zip_path, 'wb') as out_file:
-                # Download with progress
+            log(f"Attempt {attempt}/{retries}...")
+            
+            # Create SSL context that doesn't verify (for Dropbox redirects)
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            # Create request with browser-like headers
+            req = urllib.request.Request(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'identity',
+            })
+            
+            # Download with progress
+            with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as response:
                 total_size = int(response.headers.get('content-length', 0))
-                log(f"Total size: {total_size / (1024*1024):.2f} MB")
+                
+                if total_size > 0:
+                    log(f"File size: {total_size / (1024*1024):.1f} MB")
+                else:
+                    log("File size: unknown (streaming)")
                 
                 downloaded = 0
-                chunk_size = 8192
+                chunk_size = 1024 * 1024  # 1MB chunks
                 
-                while True:
-                    chunk = response.read(chunk_size)
-                    if not chunk:
-                        break
-                    out_file.write(chunk)
-                    downloaded += len(chunk)
-                    
-                    # Progress every 5MB
-                    if downloaded % (5 * 1024 * 1024) < chunk_size:
-                        log(f"Downloaded: {downloaded / (1024*1024):.1f} MB")
-        
-        size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-        log(f"✅ Download complete: {size_mb:.2f} MB")
-        
-        # Verify file exists
-        if not os.path.exists(zip_path):
-            log(f"❌ CRITICAL: ZIP file not found at {zip_path}")
-            sys.exit(1)
+                with open(dest_path, 'wb') as f:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Progress every 10MB
+                        if downloaded % (10 * 1024 * 1024) < chunk_size:
+                            if total_size > 0:
+                                pct = (downloaded / total_size) * 100
+                                log(f"Progress: {downloaded / (1024*1024):.1f} MB ({pct:.1f}%)")
+                            else:
+                                log(f"Downloaded: {downloaded / (1024*1024):.1f} MB")
             
-        if os.path.getsize(zip_path) < 1000:
-            log(f"❌ CRITICAL: ZIP file too small ({os.path.getsize(zip_path)} bytes)")
-            sys.exit(1)
+            # Verify download
+            final_size = os.path.getsize(dest_path)
+            log(f"✅ Download complete: {final_size / (1024*1024):.1f} MB")
             
-    except Exception as e:
-        log(f"❌ Download FAILED: {e}")
-        log(f"Error type: {type(e).__name__}")
-        import traceback
-        log(f"Traceback: {traceback.format_exc()}")
-        sys.exit(1)
+            if final_size < 1000:
+                log_error("File too small - might be error page")
+                # Show first bytes
+                with open(dest_path, 'rb') as f:
+                    log(f"First 200 bytes: {f.read(200)}")
+                if attempt < retries:
+                    time.sleep(5)
+                    continue
+                return False
+            
+            return True
+            
+        except Exception as e:
+            log_error(f"Attempt {attempt} failed: {e}")
+            if attempt < retries:
+                log(f"Waiting 10 seconds before retry...")
+                time.sleep(10)
+            else:
+                return False
     
-    # Распаковать ZIP
-    log("")
-    log(f"📦 Extracting ZIP to: {output_dir}")
+    return False
+
+# ============================================================================
+# EXTRACT FUNCTION
+# ============================================================================
+def extract_zip(zip_path, output_dir):
+    """Extract ZIP to flat structure"""
+    
+    log(f"📦 Extracting to: {output_dir}")
+    
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            file_list = zip_ref.namelist()
-            log(f"Files in ZIP: {len(file_list)}")
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            members = zf.namelist()
+            log(f"Files in archive: {len(members)}")
             
-            # Show first 5 files
-            for i, fname in enumerate(file_list[:5]):
-                log(f"  - {fname}")
-            if len(file_list) > 5:
-                log(f"  ... and {len(file_list) - 5} more files")
+            extracted = 0
+            skipped = 0
             
-            log("Extracting files directly to documents/ (flat structure)...")
-            
-            # ✅ EXTRACT FLAT: All files go directly to documents/
-            extracted_count = 0
-            for member in zip_ref.namelist():
+            for member in members:
                 # Skip directories
                 if member.endswith('/'):
                     continue
-                    
-                # Get just the filename (no path)
+                
+                # Get filename only (flatten structure)
                 filename = os.path.basename(member)
                 
-                # Skip if no filename
-                if not filename:
-                    continue
-                
                 # Skip system files
-                if filename.startswith('.') or filename.startswith('_'):
+                if not filename or filename.startswith('.') or filename.startswith('_'):
+                    skipped += 1
                     continue
                 
-                # Skip __MACOSX
-                if '__MACOSX' in member:
+                # Skip macOS junk
+                if '__MACOSX' in member or '.DS_Store' in member:
+                    skipped += 1
                     continue
                 
-                # Extract to documents/ directly
+                # Target path
+                target = os.path.join(output_dir, filename)
+                
+                # Handle duplicates
+                if os.path.exists(target):
+                    name, ext = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(target):
+                        target = os.path.join(output_dir, f"{name}_{counter}{ext}")
+                        counter += 1
+                
+                # Extract
                 try:
-                    source = zip_ref.open(member)
-                    target_path = os.path.join(output_dir, filename)
-                    
-                    # If file exists, add number
-                    if os.path.exists(target_path):
-                        name, ext = os.path.splitext(filename)
-                        counter = 1
-                        while os.path.exists(target_path):
-                            target_path = os.path.join(output_dir, f"{name}_{counter}{ext}")
-                            counter += 1
-                    
-                    with open(target_path, "wb") as target:
-                        target.write(source.read())
-                    
-                    source.close()
-                    extracted_count += 1
+                    with zf.open(member) as src, open(target, 'wb') as dst:
+                        dst.write(src.read())
+                    extracted += 1
                 except Exception as e:
-                    log(f"⚠️ Failed to extract {filename}: {e}")
+                    log_error(f"Failed to extract {filename}: {e}")
             
-            log(f"✅ Extracted {extracted_count} files to: {output_dir}")
+            log(f"✅ Extracted: {extracted} files")
+            if skipped > 0:
+                log(f"⏭️ Skipped: {skipped} system files")
             
-        log(f"✅ Extraction complete")
-        
-        # Verify extraction
-        if not os.path.exists(output_dir):
-            log(f"❌ CRITICAL: Output directory not found after extraction")
-            sys.exit(1)
+            return extracted
             
-    except zipfile.BadZipFile as e:
-        log(f"❌ Extract FAILED: Bad ZIP file - {e}")
-        log("This means the downloaded file is not a valid ZIP")
-        log("Possible reasons:")
-        log("  1. Dropbox link is not a direct download link")
-        log("  2. Dropbox returned an error page instead of the file")
-        log("  3. Download was interrupted")
-        
-        # Try to read first 100 bytes to see what we got
-        try:
-            with open(zip_path, 'rb') as f:
-                first_bytes = f.read(100)
-                log(f"First 100 bytes of file: {first_bytes[:100]}")
-        except:
-            pass
-            
-        sys.exit(1)
-        
+    except zipfile.BadZipFile:
+        log_error("❌ Not a valid ZIP file!")
+        # Show what we got
+        with open(zip_path, 'rb') as f:
+            content = f.read(500)
+            log(f"File content preview: {content[:200]}")
+        return 0
     except Exception as e:
-        log(f"❌ Extract FAILED: {e}")
-        import traceback
-        log(f"Traceback: {traceback.format_exc()}")
-        sys.exit(1)
+        log_error(f"❌ Extraction failed: {e}")
+        return 0
+
+# ============================================================================
+# MAIN
+# ============================================================================
+def main():
+    log("=" * 60)
+    log("📥 PIPILA Document Downloader v3.0")
+    log("=" * 60)
     
-    # Удалить ZIP
-    try:
-        os.remove(zip_path)
-        log(f"✅ Removed temp ZIP file")
-    except Exception as e:
-        log(f"⚠️ Warning removing ZIP: {e}")
+    # Clean old data
+    if os.path.exists(OUTPUT_DIR):
+        log(f"🧹 Removing old {OUTPUT_DIR}/")
+        shutil.rmtree(OUTPUT_DIR)
     
-    # Очистка macOS мусора
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Remove old ZIP
+    if os.path.exists(ZIP_PATH):
+        os.remove(ZIP_PATH)
+    
+    # Download
     log("")
-    log("🧹 Cleaning macOS system files...")
-    removed_count = 0
+    log("📥 Downloading from Dropbox...")
+    log(f"URL: {DROPBOX_URL[:60]}...")
     
-    for root, dirs, files in os.walk(output_dir, topdown=False):
-        # Удалить .DS_Store и ._* файлы
-        for file in files:
-            if file == '.DS_Store' or file.startswith('._'):
-                try:
-                    file_path = os.path.join(root, file)
-                    os.remove(file_path)
-                    removed_count += 1
-                except Exception as e:
-                    log(f"⚠️ Could not remove {file}: {e}")
-        
-        # Удалить __MACOSX папки
-        for dir_name in dirs:
-            if dir_name == '__MACOSX':
-                try:
-                    dir_path = os.path.join(root, dir_name)
-                    shutil.rmtree(dir_path)
-                    removed_count += 1
-                    log(f"Removed __MACOSX folder: {dir_path}")
-                except Exception as e:
-                    log(f"⚠️ Could not remove {dir_name}: {e}")
+    if not download_file(DROPBOX_URL, ZIP_PATH):
+        log_error("❌ DOWNLOAD FAILED after all retries")
+        log("Creating empty documents folder...")
+        # Don't exit - let bot start without docs
+        return
     
-    if removed_count > 0:
-        log(f"✅ Cleaned {removed_count} system files/folders")
-    
-    # Подсчёт файлов
+    # Extract
     log("")
-    log("📊 Analyzing downloaded files...")
+    count = extract_zip(ZIP_PATH, OUTPUT_DIR)
     
-    file_count = 0
-    file_types = {}
+    # Cleanup ZIP
+    if os.path.exists(ZIP_PATH):
+        os.remove(ZIP_PATH)
+        log("🧹 Removed temp ZIP")
     
-    for root, dirs, files in os.walk(output_dir):
-        for file in files:
-            ext = Path(file).suffix.lower()
-            
-            # Count all files
-            if ext not in file_types:
-                file_types[ext] = 0
-            file_types[ext] += 1
-            
-            # Count target files
-            if ext in ['.pdf', '.docx', '.doc', '.txt']:
-                file_count += 1
-    
+    # Summary
     log("")
-    log("=" * 70)
-    log("📊 DOWNLOAD RESULT")
-    log("=" * 70)
-    log(f"✅ Target files (PDF/DOCX/TXT): {file_count}")
-    log("")
+    log("=" * 60)
     
-    # Show all file types found
-    if file_types:
-        log("File types found:")
-        for ext, count in sorted(file_types.items(), key=lambda x: x[1], reverse=True):
-            ext_display = ext if ext else '(no extension)'
-            log(f"  {ext_display}: {count} files")
+    # Count by type
+    pdf_count = len(list(Path(OUTPUT_DIR).glob("*.pdf")))
+    docx_count = len(list(Path(OUTPUT_DIR).glob("*.docx")))
+    txt_count = len(list(Path(OUTPUT_DIR).glob("*.txt")))
+    total = pdf_count + docx_count + txt_count
     
-    if file_count > 0:
-        log("")
-        log("📂 Folder structure:")
-        folders = {}
-        
-        for root, dirs, files in os.walk(output_dir):
-            for file in files:
-                ext = Path(file).suffix.lower()
-                if ext in ['.pdf', '.docx', '.doc', '.txt']:
-                    rel_dir = os.path.relpath(root, output_dir)
-                    if rel_dir not in folders:
-                        folders[rel_dir] = []
-                    folders[rel_dir].append(file)
-        
-        for folder, files in sorted(folders.items()):
-            if folder == '.':
-                log(f"  📁 (root): {len(files)} files")
-            else:
-                log(f"  📁 {folder}: {len(files)} files")
-            
-            # Show first 3 files in each folder
-            for f in files[:3]:
-                log(f"     • {f}")
-            if len(files) > 3:
-                log(f"     ... and {len(files) - 3} more")
-        
-        log("")
-        log(f"✅ SUCCESS! Ready for RAG: {file_count} documents")
-        log("=" * 70)
-        
+    log(f"📊 RESULT:")
+    log(f"   PDF:  {pdf_count}")
+    log(f"   DOCX: {docx_count}")
+    log(f"   TXT:  {txt_count}")
+    log(f"   ─────────────")
+    log(f"   TOTAL: {total} documents")
+    log("=" * 60)
+    
+    if total == 0:
+        log("⚠️ WARNING: No documents found!")
+        log("Bot will start without RAG documents")
     else:
-        log("")
-        log("⚠️ WARNING: No PDF/DOCX/TXT files found!")
-        log("")
-        log("This could mean:")
-        log("  1. The ZIP contains files in different formats")
-        log("  2. Files are nested in subdirectories we're not seeing")
-        log("  3. The download was incomplete")
-        log("")
-        log("Total files downloaded (all types): " + str(sum(file_types.values())))
-        log("=" * 70)
+        log(f"✅ SUCCESS! {total} documents ready for RAG")
 
 if __name__ == "__main__":
     try:
-        log("Starting download process...")
-        download_and_extract()
-        log("Download process completed!")
-        sys.exit(0)
+        main()
     except KeyboardInterrupt:
-        log("Download interrupted by user")
+        log("Interrupted")
         sys.exit(1)
     except Exception as e:
-        log(f"FATAL ERROR: {e}")
+        log_error(f"FATAL: {e}")
         import traceback
-        log(traceback.format_exc())
-        sys.exit(1)
+        traceback.print_exc()
+        # Don't exit with error - let bot start
+        sys.exit(0)
+
