@@ -5,7 +5,7 @@ services:
     plan: free
     region: frankfurt
     buildCommand: pip install -r requirements_pipila.txt
-    startCommand: python download_gdrive_recursive.py && python pipila_bot.py
+    startCommand: python download_chromadb.py && python pipila_bot.py
     envVars:
       - key: BOT_TOKEN
         sync: false
