@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 8.1 FINAL - DIRECT COMMAND EXECUTION
-✅ No bash scripts - direct Python execution
-✅ Background document loading  
+VERSION: 8.2 ULTIMATE - PRE-PROCESSED CHROMADB
+✅ Uses pre-processed ChromaDB from Dropbox
+✅ No document loading - instant startup!
 ✅ Works on Python 3.13
 ✅ Works on Render.com
-✅ Flat document structure (no nested folders)
+✅ Saves 35-40 minutes of deployment time
 """
 import os
 import sys
@@ -37,7 +37,6 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
 BOT_START_TIME = datetime.now()
-DOCUMENTS_FOLDER = "./documents"
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -126,16 +125,16 @@ Escribe directamente - responderé
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 8.1 FINAL
+<b>📖 Versión:</b> 8.2 ULTIMATE
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
 • 🌍 Multilenguaje (ES/DE)
-• 📚 RAG con ChromaDB
+• 📚 RAG con ChromaDB pre-procesada
 
 <b>🤖 Tech:</b>
 • Gemini 2.5 Flash
-• ChromaDB + RAG
+• ChromaDB + RAG (pre-procesada)
 • PostgreSQL
 • Dropbox Storage
 
@@ -151,8 +150,6 @@ Escribe directamente - responderé
         'no_query': '❓ Uso: /search [consulta]\n\nEjemplo: /search productos DVAG',
         'invalid_id': '❌ ID inválido',
         'user_added': '✅ Usuario {id} añadido al equipo!',
-        'reloading': '🔄 Recargando documentos desde Dropbox...',
-        'reloaded': '✅ <b>Documentos recargados</b>\n\n📚 Documentos: <b>{docs}</b>\n📊 Chunks: <b>{chunks}</b>',
         'lang_changed': '✅ Idioma cambiado a: 🇪🇸 Español',
         'choose_lang': '🌍 <b>Selecciona idioma:</b>',
         'ask_question': '💬 Escribe tu pregunta',
@@ -240,16 +237,16 @@ Direkt schreiben - ich antworte
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
 
-<b>📖 Version:</b> 8.1 FINAL
+<b>📖 Version:</b> 8.2 ULTIMATE
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
 • 🌍 Mehrsprachig (ES/DE)
-• 📚 RAG mit ChromaDB
+• 📚 RAG mit ChromaDB (vorverarbeitet)
 
 <b>🤖 Tech:</b>
 • Gemini 2.5 Flash
-• ChromaDB + RAG
+• ChromaDB + RAG (vorverarbeitet)
 • PostgreSQL
 • Dropbox Storage
 
@@ -265,8 +262,6 @@ Direkt schreiben - ich antworte
         'no_query': '❓ Verwendung: /search [Anfrage]\n\nBeispiel: /search DVAG Produkte',
         'invalid_id': '❌ Ungültige ID',
         'user_added': '✅ Benutzer {id} zum Team hinzugefügt!',
-        'reloading': '🔄 Lade Dokumente von Dropbox neu...',
-        'reloaded': '✅ <b>Dokumente neu geladen</b>\n\n📚 Dokumente: <b>{docs}</b>\n📊 Chunks: <b>{chunks}</b>',
         'lang_changed': '✅ Sprache geändert zu: 🇩🇪 Deutsch',
         'choose_lang': '🌍 <b>Sprache wählen:</b>',
         'ask_question': '💬 Stelle deine Frage',
@@ -452,79 +447,6 @@ def extract_text_from_docx(file_path: str) -> str:
     except Exception as e:
         logger.error(f"DOCX error {file_path}: {e}")
         return ""
-
-def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> List[str]:
-    if not text or len(text) < 100:
-        return []
-    chunks = []
-    start = 0
-    text_length = len(text)
-    while start < text_length:
-        end = min(start + chunk_size, text_length)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        start += chunk_size - overlap
-    return chunks
-
-def load_documents_to_rag(documents_folder: str = DOCUMENTS_FOLDER) -> int:
-    """Load documents from folder into ChromaDB"""
-    if not collection:
-        logger.error("ChromaDB not available")
-        return 0
-    if not os.path.exists(documents_folder):
-        logger.warning(f"❌ Folder {documents_folder} not exists")
-        return 0
-    
-    documents_loaded = 0
-    total_chunks = 0
-    
-    for root, dirs, files in os.walk(documents_folder):
-        for file in files:
-            file_path = os.path.join(root, file)
-            file_ext = Path(file).suffix.lower()
-            
-            try:
-                if os.path.getsize(file_path) > 10 * 1024 * 1024:
-                    continue
-                
-                text = ""
-                if file_ext == '.pdf':
-                    text = extract_text_from_pdf(file_path)
-                elif file_ext in ['.docx', '.doc']:
-                    text = extract_text_from_docx(file_path)
-                elif file_ext == '.txt':
-                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        text = f.read()
-                else:
-                    continue
-                
-                if not text or len(text) < 100:
-                    continue
-                
-                chunks = chunk_text(text)
-                if not chunks:
-                    continue
-                
-                for i, chunk in enumerate(chunks):
-                    doc_id = f"{file}_{i}_{hash(chunk) % 10000}"
-                    try:
-                        collection.add(
-                            documents=[chunk],
-                            ids=[doc_id],
-                            metadatas=[{"source": file, "chunk": i, "path": file_path, "total_chunks": len(chunks)}]
-                        )
-                    except:
-                        pass
-                
-                documents_loaded += 1
-                total_chunks += len(chunks)
-                logger.info(f"✅ {file} ({len(chunks)} chunks)")
-            except Exception as e:
-                logger.error(f"Error {file}: {e}")
-    
-    logger.info(f"📚 Total: {documents_loaded} docs, {total_chunks} chunks")
-    return documents_loaded
 
 def search_rag(query: str, n_results: int = 3) -> List[Dict]:
     """Search in ChromaDB RAG"""
@@ -740,7 +662,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_language(user_id)
     text = get_text(lang, 'help')
     if is_creator(user_id):
-        text += "\n<b>⚙️ Admin:</b>\n/grant_team [ID]\n/reload" if lang == 'es' else "\n<b>⚙️ Admin:</b>\n/grant_team [ID]\n/reload"
+        text += "\n<b>⚙️ Admin:</b>\n/grant_team [ID]" if lang == 'es' else "\n<b>⚙️ Admin:</b>\n/grant_team [ID]"
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -823,22 +745,6 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_language(user_id)
     text = get_text(lang, 'info')
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Reload documents (admin only)"""
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    if not is_creator(user_id):
-        await update.message.reply_text(get_text(lang, 'admin_only'))
-        return
-    msg = await update.message.reply_text(get_text(lang, 'reloading'))
-    try:
-        count = load_documents_to_rag()
-        chunks = collection.count() if collection else 0
-        await msg.edit_text(get_text(lang, 'reloaded', docs=count, chunks=chunks), parse_mode=ParseMode.HTML)
-    except Exception as e:
-        logger.error(f"Reload error: {e}")
-        await msg.edit_text(get_text(lang, 'error', error=str(e)))
 
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -940,34 +846,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(get_text(current_lang, 'error', error=str(e)))
 
 # ============================================================================
-# BACKGROUND LOADING
-# ============================================================================
-async def load_documents_background():
-    """Background task to load documents"""
-    logger.info("📚 Background loading started...")
-    await asyncio.sleep(10)  # Wait for bot to fully start
-    
-    try:
-        docs_loaded = load_documents_to_rag()
-        logger.info(f"✅ Background loading complete: {docs_loaded} docs, {collection.count() if collection else 0} chunks")
-    except Exception as e:
-        logger.error(f"❌ Background loading error: {e}")
-
-# ============================================================================
-# MAIN - FIXED FOR PYTHON 3.13 + TELEGRAM BOTS
+# MAIN
 # ============================================================================
 def main():
-    """Main function - NO async, NO asyncio.run() - Direct run_polling()"""
+    """Main function"""
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v8.1 FINAL - DIRECT EXECUTION")
+    logger.info("🚀 PIPILA v8.2 ULTIMATE")
     logger.info("=" * 60)
     
-    # Check documents folder
-    if os.path.exists(DOCUMENTS_FOLDER):
-        has_files = any(os.scandir(DOCUMENTS_FOLDER))
-        logger.info(f"{'✅' if has_files else '⚠️'} Documents folder: {'has files' if has_files else 'empty'}")
+    # Check ChromaDB
+    chunks = collection.count() if collection else 0
+    if chunks > 0:
+        logger.info(f"✅ Using pre-processed ChromaDB: {chunks} chunks")
     else:
-        logger.warning("⚠️ Documents folder not found - will load in background")
+        logger.warning("⚠️ ChromaDB empty - no documents available")
     
     # Build application
     application = Application.builder().token(BOT_TOKEN).build()
@@ -982,7 +874,6 @@ def main():
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("team", team_command))
     application.add_handler(CommandHandler("info", info_command))
-    application.add_handler(CommandHandler("reload", reload_command))
     application.add_handler(CommandHandler("grant_team", grant_team_command))
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
@@ -991,21 +882,12 @@ def main():
     logger.info("=" * 60)
     logger.info("✅ PIPILA started successfully")
     logger.info(f"🤖 AI: Gemini 2.5 Flash")
-    logger.info(f"📊 Initial chunks: {collection.count() if collection else 0}")
+    logger.info(f"📊 Chunks: {chunks}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
     logger.info(f"🌍 Languages: ES, DE")
-    logger.info(f"📚 Background loading: will start after initialization")
     logger.info("=" * 60)
     
-    # ✅ Start background loading after bot initializes
-    async def post_init(app):
-        """Called after bot initialization"""
-        asyncio.create_task(load_documents_background())
-    
-    application.post_init = post_init
-    
-    # ✅ CRITICAL: Use run_polling() WITHOUT asyncio.run()
-    # Telegram bots manage their own event loop
+    # Start bot
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
