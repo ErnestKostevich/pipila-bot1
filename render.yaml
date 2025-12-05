@@ -1,11 +1,11 @@
 services:
-  - type: worker
+  - type: web
     name: pipila-bot
-    runtime: python
-    plan: standard
+    env: python
+    plan: free
     region: frankfurt
-    buildCommand: pip install -r requirements_pipila.txt && python download_documents.py
-    startCommand: python pipila_bot.py
+    buildCommand: pip install -r requirements_pipila.txt
+    startCommand: python download_gdrive_recursive.py && python pipila_bot.py
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -13,13 +13,10 @@ services:
         sync: false
       - key: DATABASE_URL
         fromDatabase:
-          name: pipila-db
+          name: pipila_db
           property: connectionString
-      - key: PYTHON_VERSION
-        value: "3.11.4"
 
 databases:
-  - name: pipila-db
+  - name: pipila_db
     databaseName: pipila
     user: pipila_user
-    plan: free
