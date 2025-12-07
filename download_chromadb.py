@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔽 PIPILA - ChromaDB Downloader
-Downloads pre-processed ChromaDB from Dropbox
+🔽 PIPILA - ChromaDB Downloader v8.2
+Downloads pre-processed ChromaDB from GitHub Releases
 Saves 35-40 minutes of processing time!
 """
 
@@ -18,38 +18,23 @@ def log(msg):
     sys.stdout.flush()
 
 def download_chromadb():
-    """Download and extract ChromaDB from Dropbox"""
+    """Download and extract ChromaDB from GitHub Releases"""
     
-    # ✅ Dropbox direct download link for chroma_db.zip
-    # Configured with actual link (MUST end with ?dl=1 for direct download)
-    dropbox_url = "https://www.dropbox.com/scl/fi/ntxalvi82zh2xao7x1e0f/chroma_db.zip?rlkey=q9qmjvwwdf9bo5c4lnmnr1g30&st=shvsn4tv&dl=1"
+    # ✅ GitHub Releases direct download link
+    github_url = "https://github.com/ErnestKostevich/pipila-bot1/releases/download/v8.2/chroma_db.zip"
     
     zip_path = "/tmp/chroma_db.zip"
     output_dir = "./chroma_db"
     
     log("=" * 70)
-    log("🔽 Downloading pre-processed ChromaDB from Dropbox")
+    log("🔽 PIPILA v8.2 - Downloading ChromaDB from GitHub Releases")
     log("=" * 70)
-    
-    # Check if URL is configured
-    if "YOUR_DROPBOX_DIRECT_LINK_HERE" in dropbox_url:
-        log("❌ ERROR: Dropbox URL not configured!")
-        log("")
-        log("Steps to configure:")
-        log("1. Upload chroma_db.zip to Dropbox")
-        log("2. Get sharing link")
-        log("3. Change '?dl=0' to '?dl=1' in the link")
-        log("4. Replace YOUR_DROPBOX_DIRECT_LINK_HERE in this script")
-        log("")
-        log("⚠️ Falling back to empty ChromaDB - bot will work but without documents")
-        
-        # Create empty ChromaDB so bot doesn't crash
-        os.makedirs(output_dir, exist_ok=True)
-        return
+    log(f"📥 Source: {github_url}")
+    log("")
     
     # Clean old folder
     if os.path.exists(output_dir):
-        log(f"🧹 Cleaning old ChromaDB folder")
+        log("🧹 Cleaning old ChromaDB folder...")
         try:
             shutil.rmtree(output_dir)
             log("✅ Old folder removed")
@@ -58,20 +43,24 @@ def download_chromadb():
     
     # Download ZIP
     log("")
-    log("📥 Starting download from Dropbox...")
+    log("📥 Starting download...")
     try:
         req = urllib.request.Request(
-            dropbox_url,
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            github_url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/octet-stream'
+            }
         )
         
-        with urllib.request.urlopen(req, timeout=600) as response:
+        with urllib.request.urlopen(req, timeout=300) as response:
             with open(zip_path, 'wb') as out_file:
                 total_size = int(response.headers.get('content-length', 0))
-                log(f"Total size: {total_size / (1024*1024):.2f} MB")
+                if total_size > 0:
+                    log(f"📦 Total size: {total_size / (1024*1024):.2f} MB")
                 
                 downloaded = 0
-                chunk_size = 8192
+                chunk_size = 65536  # 64KB chunks for faster download
                 
                 while True:
                     chunk = response.read(chunk_size)
@@ -82,16 +71,24 @@ def download_chromadb():
                     
                     # Progress every 10MB
                     if downloaded % (10 * 1024 * 1024) < chunk_size:
-                        log(f"Downloaded: {downloaded / (1024*1024):.1f} MB")
+                        log(f"   Downloaded: {downloaded / (1024*1024):.1f} MB")
         
         size_mb = os.path.getsize(zip_path) / (1024 * 1024)
         log(f"✅ Download complete: {size_mb:.2f} MB")
         
-        # Verify
-        if not os.path.exists(zip_path) or os.path.getsize(zip_path) < 1000:
-            log(f"❌ CRITICAL: Invalid ZIP file")
+        # Verify file size
+        if size_mb < 1:
+            log("❌ CRITICAL: Downloaded file too small!")
+            log("   Check if GitHub release file exists")
             sys.exit(1)
             
+    except urllib.error.HTTPError as e:
+        log(f"❌ HTTP Error {e.code}: {e.reason}")
+        if e.code == 404:
+            log("   File not found on GitHub Releases!")
+            log("   Check: https://github.com/ErnestKostevich/pipila-bot1/releases/tag/v8.2")
+        sys.exit(1)
+        
     except Exception as e:
         log(f"❌ Download FAILED: {e}")
         import traceback
@@ -100,12 +97,15 @@ def download_chromadb():
     
     # Extract ZIP
     log("")
-    log(f"📦 Extracting ChromaDB...")
+    log("📦 Extracting ChromaDB...")
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # List contents
+            file_list = zip_ref.namelist()
+            log(f"   Archive contains {len(file_list)} items")
             zip_ref.extractall(".")
         
-        log(f"✅ Extraction complete")
+        log("✅ Extraction complete")
         
     except zipfile.BadZipFile as e:
         log(f"❌ Extract FAILED: Bad ZIP file - {e}")
@@ -117,47 +117,60 @@ def download_chromadb():
         log(f"Traceback: {traceback.format_exc()}")
         sys.exit(1)
     
-    # Remove ZIP
+    # Remove ZIP to save space
     try:
         os.remove(zip_path)
-        log(f"✅ Removed temp ZIP file")
+        log("✅ Cleaned up temp files")
     except:
         pass
     
     # Verify ChromaDB folder
     if not os.path.exists(output_dir):
-        log(f"❌ ChromaDB folder not found after extraction!")
+        log("❌ ChromaDB folder not found after extraction!")
+        log("   Expected: ./chroma_db")
         sys.exit(1)
     
-    # Count files
+    # Count files and check structure
     log("")
-    log("📊 Analyzing ChromaDB...")
+    log("📊 Verifying ChromaDB structure...")
     
     file_count = 0
+    has_sqlite = False
     for root, dirs, files in os.walk(output_dir):
         file_count += len(files)
+        for f in files:
+            if f.endswith('.sqlite3'):
+                has_sqlite = True
     
+    if not has_sqlite:
+        log("⚠️ Warning: No SQLite database found in ChromaDB")
+    
+    # Success summary
     log("")
     log("=" * 70)
-    log("✅ SUCCESS! ChromaDB ready")
+    log("✅ SUCCESS! ChromaDB ready for PIPILA")
     log("=" * 70)
-    log(f"📁 Folder: {output_dir}")
+    log(f"📁 Location: {output_dir}")
     log(f"📊 Files: {file_count}")
-    log(f"⚡ Saved: ~35-40 minutes of processing time!")
+    log(f"💾 SQLite: {'✅ Found' if has_sqlite else '⚠️ Not found'}")
+    log(f"⚡ Saved: ~35-40 minutes of document processing!")
     log("=" * 70)
 
 
 if __name__ == "__main__":
     try:
-        log("Starting ChromaDB download...")
+        log("=" * 70)
+        log("🚀 PIPILA ChromaDB Downloader v8.2")
+        log("=" * 70)
         download_chromadb()
-        log("ChromaDB download completed!")
+        log("")
+        log("✅ Ready to start bot!")
         sys.exit(0)
     except KeyboardInterrupt:
-        log("Download interrupted")
+        log("⚠️ Download interrupted by user")
         sys.exit(1)
     except Exception as e:
-        log(f"FATAL ERROR: {e}")
+        log(f"💥 FATAL ERROR: {e}")
         import traceback
         log(traceback.format_exc())
         sys.exit(1)
