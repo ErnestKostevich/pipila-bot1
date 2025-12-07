@@ -2,12 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 8.2 ULTIMATE - PRE-PROCESSED CHROMADB
-✅ Uses pre-processed ChromaDB from Dropbox
-✅ No document loading - instant startup!
+VERSION: 8.3 - GRANT BY USERNAME
+✅ Uses pre-processed ChromaDB from GitHub Releases
+✅ Grant team access by ID or @username
 ✅ Works on Python 3.13
 ✅ Works on Render.com
-✅ Saves 35-40 minutes of deployment time
 """
 import os
 import sys
@@ -125,7 +124,7 @@ Escribe directamente - responderé
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 8.2 ULTIMATE
+<b>📖 Versión:</b> 8.3
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
@@ -136,7 +135,7 @@ Escribe directamente - responderé
 • Gemini 2.5 Flash
 • ChromaDB + RAG (pre-procesada)
 • PostgreSQL
-• Dropbox Storage
+• GitHub Releases Storage
 
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Cliente:</b> Oscar Casco""",
@@ -237,7 +236,7 @@ Direkt schreiben - ich antworte
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
 
-<b>📖 Version:</b> 8.2 ULTIMATE
+<b>📖 Version:</b> 8.3
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
@@ -248,7 +247,7 @@ Direkt schreiben - ich antworte
 • Gemini 2.5 Flash
 • ChromaDB + RAG (vorverarbeitet)
 • PostgreSQL
-• Dropbox Storage
+• GitHub Releases Storage
 
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Kunde:</b> Oscar Casco""",
@@ -662,7 +661,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_language(user_id)
     text = get_text(lang, 'help')
     if is_creator(user_id):
-        text += "\n<b>⚙️ Admin:</b>\n/grant_team [ID]" if lang == 'es' else "\n<b>⚙️ Admin:</b>\n/grant_team [ID]"
+        admin_text = "\n\n<b>⚙️ Admin:</b>\n/grant_team [ID o @username]" if lang == 'es' else "\n\n<b>⚙️ Admin:</b>\n/grant_team [ID oder @username]"
+        text += admin_text
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def lang_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -746,21 +746,95 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = get_text(lang, 'info')
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
+# ============================================================================
+# GRANT TEAM - SUPPORTS BOTH ID AND @USERNAME
+# ============================================================================
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Grant team access by ID or @username"""
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
+    
     if not is_creator(user_id):
         await update.message.reply_text(get_text(lang, 'admin_only'))
         return
+    
     if not context.args:
-        await update.message.reply_text("❓ /grant_team [user_id]")
+        usage = """❓ <b>Uso:</b>
+/grant_team [user_id]
+/grant_team @username
+
+<b>Ejemplos:</b>
+<code>/grant_team 123456789</code>
+<code>/grant_team @OscarCasco</code>""" if lang == 'es' else """❓ <b>Verwendung:</b>
+/grant_team [user_id]
+/grant_team @username
+
+<b>Beispiele:</b>
+<code>/grant_team 123456789</code>
+<code>/grant_team @OscarCasco</code>"""
+        await update.message.reply_text(usage, parse_mode=ParseMode.HTML)
         return
-    try:
-        target_id = int(context.args[0])
-        storage.update_user(target_id, {'is_team': True})
-        await update.message.reply_text(get_text(lang, 'user_added', id=target_id))
-    except ValueError:
-        await update.message.reply_text(get_text(lang, 'invalid_id'))
+    
+    target = context.args[0]
+    
+    # Check if it's a username (starts with @)
+    if target.startswith('@'):
+        username = target[1:]  # Remove @
+        
+        # Search for user in database by username
+        if engine:
+            session = Session()
+            try:
+                user = session.query(User).filter(User.username.ilike(username)).first()
+                if user:
+                    user.is_team = True
+                    session.commit()
+                    success_msg = f"✅ Usuario @{username} (ID: {user.id}) añadido al equipo!" if lang == 'es' else f"✅ Benutzer @{username} (ID: {user.id}) zum Team hinzugefügt!"
+                    await update.message.reply_text(success_msg)
+                else:
+                    not_found = f"""⚠️ Usuario @{username} no encontrado en la base de datos.
+
+<b>Opciones:</b>
+1. Pide que el usuario envíe /start al bot primero
+2. Usa su ID numérico: /grant_team [ID]
+
+<i>Tip: Cuando el usuario escriba al bot, se registrará automáticamente.</i>""" if lang == 'es' else f"""⚠️ Benutzer @{username} nicht in der Datenbank gefunden.
+
+<b>Optionen:</b>
+1. Bitte den Benutzer zuerst /start an den Bot zu senden
+2. Verwende seine numerische ID: /grant_team [ID]
+
+<i>Tipp: Wenn der Benutzer dem Bot schreibt, wird er automatisch registriert.</i>"""
+                    await update.message.reply_text(not_found, parse_mode=ParseMode.HTML)
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Grant team error: {e}")
+                await update.message.reply_text(get_text(lang, 'error', error=str(e)[:100]))
+            finally:
+                session.close()
+        else:
+            # JSON storage - search in local users
+            found = False
+            for uid, udata in storage.users.items():
+                if udata.get('username', '').lower() == username.lower():
+                    storage.update_user(uid, {'is_team': True})
+                    success_msg = f"✅ Usuario @{username} (ID: {uid}) añadido al equipo!" if lang == 'es' else f"✅ Benutzer @{username} (ID: {uid}) zum Team hinzugefügt!"
+                    await update.message.reply_text(success_msg)
+                    found = True
+                    break
+            
+            if not found:
+                not_found = f"⚠️ Usuario @{username} no encontrado. Pide que envíe /start primero." if lang == 'es' else f"⚠️ Benutzer @{username} nicht gefunden. Bitte ihn zuerst /start zu senden."
+                await update.message.reply_text(not_found)
+    else:
+        # It's an ID
+        try:
+            target_id = int(target)
+            storage.update_user(target_id, {'is_team': True})
+            await update.message.reply_text(get_text(lang, 'user_added', id=target_id))
+        except ValueError:
+            invalid = "❌ ID inválido. Usa número o @username" if lang == 'es' else "❌ Ungültige ID. Verwende Nummer oder @username"
+            await update.message.reply_text(invalid)
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -851,7 +925,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     """Main function"""
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v8.2 ULTIMATE")
+    logger.info("🚀 PIPILA v8.3 - Grant by Username")
     logger.info("=" * 60)
     
     # Check ChromaDB
