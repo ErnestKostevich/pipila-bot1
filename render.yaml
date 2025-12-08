@@ -1,21 +1,22 @@
 services:
-  - type: worker
-    name: pipila-bot1
-    runtime: python
-    plan: starter
+  - type: web
+    name: pipila-bot
+    env: python
+    plan: free
     region: frankfurt
     buildCommand: pip install -r requirements_pipila.txt
     startCommand: python download_chromadb.py && python pipila_bot.py
-    disk:
-      name: chromadb-storage
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: BOT_TOKEN
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: CHROMA_PATH
-        value: /var/data/chroma
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: pipila_db
+          property: connectionString
+
+databases:
+  - name: pipila_db
+    databaseName: pipila
+    user: pipila_user
