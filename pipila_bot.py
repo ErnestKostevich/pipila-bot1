@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🤖 PIPILA v8.5 FINAL
-Financial Assistant for Oscar Casco Team
-✅ Gemini 2.5 Flash AI
-✅ RAG System with ChromaDB
-✅ PostgreSQL Database
-✅ Bilingual (ES/DE)
+🤖 PIPILA v9.0 PRO
+Professional Financial Assistant for Oscar Casco Team
+✅ Streamlined interface for consultants
+✅ Quick access to products and client categories
+✅ Gemini 2.5 Flash AI + RAG
 """
 import os
 import sys
@@ -36,7 +35,7 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 CHROMA_PATH = "./chroma_db"
 CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
-BOT_VERSION = "8.5 FINAL"
+BOT_VERSION = "9.0 PRO"
 BOT_START_TIME = datetime.now()
 
 logging.basicConfig(
@@ -51,339 +50,280 @@ if not BOT_TOKEN or not GEMINI_API_KEY:
     sys.exit(1)
 
 # ============================================================================
-# TRANSLATIONS - IMPROVED UI
+# PROFESSIONAL TRANSLATIONS (ES/DE)
 # ============================================================================
 TRANSLATIONS = {
     'es': {
-        'welcome': """
-╔═══════════════════════════════════════╗
-║      🤖 <b>PIPILA</b> - Tu Asistente        ║
-╚═══════════════════════════════════════╝
+        'welcome': """👋 Hola <b>{name}</b>
 
-¡Hola <b>{name}</b>! 👋
+Soy tu asistente del <b>equipo Oscar Casco</b>.
 
-Soy el asistente inteligente del <b>equipo de Oscar Casco</b>.
+Tengo acceso a toda la información sobre:
+• DVAG
+• Generali  
+• Badenia
+• Advocard
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 <b>MIS CONOCIMIENTOS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• DVAG - Productos financieros
-• Generali - Seguros de vida/salud
-• Badenia - Ahorro vivienda
-• Advocard - Protección jurídica
+Usa el menú ⬇️ o escribe tu consulta directamente.""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 <b>CÓMO USARME:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Escribe tu pregunta directamente
-• Envía documentos PDF/DOCX
-• Usa los botones de abajo ⬇️
+        'main_menu_msg': "📱 <b>Menú Principal</b>\n\nSelecciona una opción:",
+        
+        # Product quick access
+        'product_dvag': """<b>🏢 DVAG</b>
 
-<i>Creado por @{creator}</i>
-""",
-        'help': """
-📚 <b>GUÍA DE USO - PIPILA</b>
+Información disponible:
+• Estructura y funcionamiento
+• Productos financieros
+• Plan de carrera
+• Comisiones
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 <b>HACER CONSULTAS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Escribe tu pregunta directamente
-• /search [tema] - Buscar específico
+¿Qué necesitas saber?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📄 <b>DOCUMENTOS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Envía PDF, DOCX o TXT
-• Los analizo y respondo
+        'product_generali': """<b>🛡️ GENERALI</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ <b>COMANDOS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/start - Reiniciar bot
-/docs - Ver base de conocimiento
-/stats - Tus estadísticas
-/team - Ver equipo
-/lang - Cambiar idioma 🇪🇸/🇩🇪
-/clear - Limpiar conversación
+Seguros disponibles:
+• Vida
+• Salud
+• Hogar
+• Auto
+• Responsabilidad civil
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💬 <b>EJEMPLOS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"¿Qué productos ofrece DVAG?"
-"Explícame el seguro de vida Generali"
-"¿Cómo funciona Badenia?"
-""",
-        'docs': """
-📚 <b>BASE DE CONOCIMIENTO</b>
+¿Qué seguro consultas?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 <b>ESTADÍSTICAS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Fragmentos indexados: <b>{count}</b>
+        'product_badenia': """<b>🏠 BADENIA</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📂 <b>CATEGORÍAS:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏢 DVAG - Estructura y productos
-🛡️ Generali - Seguros completos
-🏠 Badenia - Ahorro vivienda
-⚖️ Advocard - Protección legal
+Bausparkasse:
+• Plan de ahorro vivienda
+• Préstamos hipotecarios
+• Condiciones y ventajas
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 Escribe tu pregunta y buscaré
-   la información relevante.
-""",
-        'stats': """
-📊 <b>TUS ESTADÍSTICAS</b>
+¿Qué información necesitas?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>PERFIL:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Nombre: <b>{name}</b>
-Usuario: @{username}
-Estado: {access}
+        'product_advocard': """<b>⚖️ ADVOCARD</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📈 <b>ACTIVIDAD:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Consultas realizadas: <b>{queries}</b>
+Protección jurídica:
+• Cobertura laboral
+• Tráfico
+• Vivienda
+• Privado
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🤖 <b>SISTEMA:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Base de datos: {docs} chunks
-Uptime: {uptime}
-AI: Gemini 2.5 Flash ✅
-DB: {db} ✅
-Versión: {version}
-""",
-        'team': """
-👥 <b>EQUIPO OSCAR CASCO</b>
+¿Sobre qué área consultas?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 <b>MIEMBROS:</b> {count}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # Client categories
+        'client_familia': """<b>👨‍👩‍👧 FAMILIAS</b>
 
-{members}
-""",
-        'info': """
-🤖 <b>PIPILA - INFORMACIÓN</b>
+Productos recomendados:
+• Seguro de vida
+• Seguro de salud
+• Plan de ahorro
+• Protección del hogar
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📖 <b>ACERCA DE:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Versión: <b>{version}</b>
-Asistente del equipo de Oscar Casco
+¿Qué caso tienes?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 <b>CAPACIDADES:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Chat inteligente con memoria
-✅ Búsqueda en documentos (RAG)
-✅ Procesamiento de archivos
-✅ Multilenguaje (ES/DE)
-✅ Sistema de equipos
+        'client_autonomo': """<b>💼 AUTÓNOMOS</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ <b>TECNOLOGÍA:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🤖 Gemini 2.5 Flash
-📚 ChromaDB + RAG
-🗄️ PostgreSQL
+Soluciones para autónomos:
+• Seguro de responsabilidad
+• Protección de ingresos
+• Jubilación privada
+• Seguro de salud
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👨‍💻 Desarrollador: @Ernest_Kostevich
-👔 Cliente: Oscar Casco
-""",
-        'no_docs': '⚠️ Base de conocimiento vacía.\nContacta al administrador.',
-        'team_only': '🔒 Acceso restringido a miembros del equipo.\n\nContacta al administrador para solicitar acceso.',
-        'admin_only': '🔒 Comando solo para administradores.',
-        'cleared': '🧹 ¡Conversación limpiada!\n\nPuedes empezar de nuevo.',
-        'error': '❌ <b>Error:</b> {error}\n\nIntenta de nuevo o contacta al admin.',
-        'processing': '⏳ Procesando tu consulta...',
-        'processing_file': '📄 Analizando documento...',
-        'no_query': '❓ <b>Uso:</b> /search [tu pregunta]\n\n<b>Ejemplo:</b>\n/search ¿Qué es DVAG?',
-        'invalid_id': '❌ ID de usuario inválido',
-        'user_added': '✅ ¡Usuario <b>{id}</b> añadido al equipo!',
-        'lang_changed': '✅ Idioma cambiado a: 🇪🇸 <b>Español</b>',
-        'choose_lang': '🌍 <b>Selecciona tu idioma:</b>',
-        'ask_question': '💬 Escribe tu pregunta y te ayudaré',
-        'file_processed': '✅ <b>Documento analizado:</b> {filename}\n\n{response}',
-        'file_error': '❌ Error al procesar: {error}',
-        'thinking': '🤔 Buscando en mi base de conocimiento...',
+¿Qué necesita tu cliente?""",
+
+        'client_empresa': """<b>🏭 EMPRESARIOS</b>
+
+Para empresas:
+• Seguro de responsabilidad civil
+• Protección de empleados
+• Planes de pensiones
+• Seguros de negocio
+
+¿Qué consultas?""",
+
+        # Templates
+        'templates_msg': """<b>📋 CONSULTAS FRECUENTES</b>
+
+Ejemplos de preguntas útiles:
+
+<b>Comisiones:</b>
+"¿Cuánto se cobra por un seguro de vida?"
+
+<b>Comparativas:</b>
+"Diferencias entre seguros de salud"
+
+<b>Requisitos:</b>
+"¿Qué documentos necesita un cliente nuevo?"
+
+<b>Procesos:</b>
+"¿Cómo se tramita una póliza Generali?"
+
+Puedes copiar y adaptar estas preguntas.""",
+
+        # System
+        'thinking': '⏳ Consultando...',
+        'error': '❌ Error: {error}',
+        'cleared': '✅ Conversación reiniciada',
+        'file_processed': '<b>📄 {filename}</b>\n\n{response}',
+        'file_error': '❌ Error al procesar archivo',
+        'admin_only': '🔒 Solo administradores',
+        'user_added': '✅ Usuario {id} añadido al equipo',
+        'no_access': '🔒 Solo para el equipo de Oscar.\nContacta al administrador.',
+        
+        # Keyboard
         'keyboard': {
-            'ask': '💬 Preguntar',
-            'docs': '📚 Conocimiento',
-            'stats': '📊 Estadísticas',
-            'team': '👥 Equipo',
-            'info': 'ℹ️ Info',
-            'help': '❓ Ayuda'
+            'products': '🏢 Productos',
+            'clients': '👥 Clientes',
+            'templates': '📋 Consultas',
+            'team': '👔 Equipo',
+            'lang': '🌍 Idioma',
+            'reset': '🔄 Reiniciar'
+        },
+        'products_keyboard': {
+            'dvag': 'DVAG',
+            'generali': 'Generali',
+            'badenia': 'Badenia',
+            'advocard': 'Advocard',
+            'back': '◀️ Atrás'
+        },
+        'clients_keyboard': {
+            'familia': '👨‍👩‍👧 Familias',
+            'autonomo': '💼 Autónomos',
+            'empresa': '🏭 Empresarios',
+            'back': '◀️ Atrás'
         }
     },
     'de': {
-        'welcome': """
-╔═══════════════════════════════════════╗
-║      🤖 <b>PIPILA</b> - Dein Assistent      ║
-╚═══════════════════════════════════════╝
+        'welcome': """👋 Hallo <b>{name}</b>
 
-Hallo <b>{name}</b>! 👋
+Ich bin dein Assistent vom <b>Team Oscar Casco</b>.
 
-Ich bin der intelligente Assistent des <b>Teams von Oscar Casco</b>.
+Ich habe Zugriff auf alle Informationen über:
+• DVAG
+• Generali  
+• Badenia
+• Advocard
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 <b>MEIN WISSEN:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• DVAG - Finanzprodukte
-• Generali - Lebens-/Krankenversicherung
-• Badenia - Bausparen
-• Advocard - Rechtsschutz
+Nutze das Menü ⬇️ oder stelle direkt deine Frage.""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 <b>WIE DU MICH NUTZT:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Stelle deine Frage direkt
-• Sende PDF/DOCX Dokumente
-• Nutze die Buttons unten ⬇️
+        'main_menu_msg': "📱 <b>Hauptmenü</b>\n\nWähle eine Option:",
+        
+        'product_dvag': """<b>🏢 DVAG</b>
 
-<i>Erstellt von @{creator}</i>
-""",
-        'help': """
-📚 <b>BENUTZERHANDBUCH - PIPILA</b>
+Verfügbare Informationen:
+• Struktur und Funktionsweise
+• Finanzprodukte
+• Karriereplan
+• Provisionen
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 <b>ANFRAGEN STELLEN:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Schreibe deine Frage direkt
-• /search [Thema] - Gezielt suchen
+Was möchtest du wissen?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📄 <b>DOKUMENTE:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Sende PDF, DOCX oder TXT
-• Ich analysiere und antworte
+        'product_generali': """<b>🛡️ GENERALI</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ <b>BEFEHLE:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/start - Bot neu starten
-/docs - Wissensbasis ansehen
-/stats - Deine Statistiken
-/team - Team ansehen
-/lang - Sprache ändern 🇪🇸/🇩🇪
-/clear - Gespräch löschen
+Verfügbare Versicherungen:
+• Leben
+• Gesundheit
+• Haus
+• Auto
+• Haftpflicht
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💬 <b>BEISPIELE:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"Welche Produkte bietet DVAG?"
-"Erkläre mir die Generali Lebensversicherung"
-"Wie funktioniert Badenia?"
-""",
-        'docs': """
-📚 <b>WISSENSBASIS</b>
+Welche Versicherung?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 <b>STATISTIKEN:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Indexierte Fragmente: <b>{count}</b>
+        'product_badenia': """<b>🏠 BADENIA</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📂 <b>KATEGORIEN:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏢 DVAG - Struktur und Produkte
-🛡️ Generali - Komplette Versicherungen
-🏠 Badenia - Bausparen
-⚖️ Advocard - Rechtsschutz
+Bausparkasse:
+• Bausparplan
+• Hypothekendarlehen
+• Bedingungen und Vorteile
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 Stelle deine Frage und ich suche
-   die relevanten Informationen.
-""",
-        'stats': """
-📊 <b>DEINE STATISTIKEN</b>
+Welche Information brauchst du?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 <b>PROFIL:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Name: <b>{name}</b>
-Benutzer: @{username}
-Status: {access}
+        'product_advocard': """<b>⚖️ ADVOCARD</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📈 <b>AKTIVITÄT:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Durchgeführte Anfragen: <b>{queries}</b>
+Rechtsschutz:
+• Arbeitsrecht
+• Verkehr
+• Wohnen
+• Privat
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🤖 <b>SYSTEM:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Wissensbasis: {docs} Chunks
-Uptime: {uptime}
-AI: Gemini 2.5 Flash ✅
-DB: {db} ✅
-Version: {version}
-""",
-        'team': """
-👥 <b>TEAM OSCAR CASCO</b>
+Über welchen Bereich?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 <b>MITGLIEDER:</b> {count}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        'client_familia': """<b>👨‍👩‍👧 FAMILIEN</b>
 
-{members}
-""",
-        'info': """
-🤖 <b>PIPILA - INFORMATION</b>
+Empfohlene Produkte:
+• Lebensversicherung
+• Krankenversicherung
+• Sparplan
+• Hausschutz
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📖 <b>ÜBER:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Version: <b>{version}</b>
-Assistent des Teams von Oscar Casco
+Welcher Fall?""",
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 <b>FÄHIGKEITEN:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ Intelligenter Chat mit Gedächtnis
-✅ Dokumentensuche (RAG)
-✅ Dateiverarbeitung
-✅ Mehrsprachig (ES/DE)
-✅ Team-System
+        'client_autonomo': """<b>💼 SELBSTÄNDIGE</b>
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ <b>TECHNOLOGIE:</b>
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🤖 Gemini 2.5 Flash
-📚 ChromaDB + RAG
-🗄️ PostgreSQL
+Lösungen für Selbständige:
+• Haftpflichtversicherung
+• Einkommensschutz
+• Private Altersvorsorge
+• Krankenversicherung
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👨‍💻 Entwickler: @Ernest_Kostevich
-👔 Kunde: Oscar Casco
-""",
-        'no_docs': '⚠️ Wissensbasis leer.\nKontaktiere den Administrator.',
-        'team_only': '🔒 Zugriff nur für Teammitglieder.\n\nKontaktiere den Administrator für Zugang.',
-        'admin_only': '🔒 Befehl nur für Administratoren.',
-        'cleared': '🧹 Gespräch gelöscht!\n\nDu kannst neu beginnen.',
-        'error': '❌ <b>Fehler:</b> {error}\n\nVersuche es erneut oder kontaktiere den Admin.',
-        'processing': '⏳ Verarbeite deine Anfrage...',
-        'processing_file': '📄 Analysiere Dokument...',
-        'no_query': '❓ <b>Verwendung:</b> /search [deine Frage]\n\n<b>Beispiel:</b>\n/search Was ist DVAG?',
-        'invalid_id': '❌ Ungültige Benutzer-ID',
-        'user_added': '✅ Benutzer <b>{id}</b> zum Team hinzugefügt!',
-        'lang_changed': '✅ Sprache geändert zu: 🇩🇪 <b>Deutsch</b>',
-        'choose_lang': '🌍 <b>Wähle deine Sprache:</b>',
-        'ask_question': '💬 Stelle deine Frage und ich helfe dir',
-        'file_processed': '✅ <b>Dokument analysiert:</b> {filename}\n\n{response}',
-        'file_error': '❌ Fehler beim Verarbeiten: {error}',
-        'thinking': '🤔 Suche in meiner Wissensbasis...',
+Was braucht dein Kunde?""",
+
+        'client_empresa': """<b>🏭 UNTERNEHMER</b>
+
+Für Unternehmen:
+• Betriebshaftpflicht
+• Mitarbeiterschutz
+• Pensionspläne
+• Betriebsversicherungen
+
+Was möchtest du wissen?""",
+
+        'templates_msg': """<b>📋 HÄUFIGE ANFRAGEN</b>
+
+Beispiele nützlicher Fragen:
+
+<b>Provisionen:</b>
+"Wie viel verdient man mit Lebensversicherung?"
+
+<b>Vergleiche:</b>
+"Unterschiede zwischen Krankenversicherungen"
+
+<b>Anforderungen:</b>
+"Welche Dokumente braucht ein Neukunde?"
+
+<b>Prozesse:</b>
+"Wie bearbeitet man eine Generali Police?"
+
+Du kannst diese Fragen kopieren und anpassen.""",
+
+        'thinking': '⏳ Suche...',
+        'error': '❌ Fehler: {error}',
+        'cleared': '✅ Gespräch neu gestartet',
+        'file_processed': '<b>📄 {filename}</b>\n\n{response}',
+        'file_error': '❌ Fehler beim Verarbeiten',
+        'admin_only': '🔒 Nur für Administratoren',
+        'user_added': '✅ Benutzer {id} zum Team hinzugefügt',
+        'no_access': '🔒 Nur für Oscar Team.\nKontaktiere den Administrator.',
+        
         'keyboard': {
-            'ask': '💬 Fragen',
-            'docs': '📚 Wissen',
-            'stats': '📊 Statistiken',
-            'team': '👥 Team',
-            'info': 'ℹ️ Info',
-            'help': '❓ Hilfe'
+            'products': '🏢 Produkte',
+            'clients': '👥 Kunden',
+            'templates': '📋 Anfragen',
+            'team': '👔 Team',
+            'lang': '🌍 Sprache',
+            'reset': '🔄 Reset'
+        },
+        'products_keyboard': {
+            'dvag': 'DVAG',
+            'generali': 'Generali',
+            'badenia': 'Badenia',
+            'advocard': 'Advocard',
+            'back': '◀️ Zurück'
+        },
+        'clients_keyboard': {
+            'familia': '👨‍👩‍👧 Familien',
+            'autonomo': '💼 Selbständige',
+            'empresa': '🏭 Unternehmer',
+            'back': '◀️ Zurück'
         }
     }
 }
@@ -394,16 +334,14 @@ def get_text(lang: str, key: str, **kwargs) -> str:
 
 def detect_language(text: str) -> str:
     text_lower = text.lower()
-    de_words = ['was', 'wie', 'wo', 'wann', 'warum', 'ist', 'sind', 'haben', 'können',
-                'möchte', 'bitte', 'danke', 'gut', 'schlecht', 'ja', 'nein', 'ich', 'du']
-    es_words = ['qué', 'cómo', 'dónde', 'cuándo', 'por qué', 'es', 'son', 'tener', 'poder',
-                'quiero', 'por favor', 'gracias', 'bueno', 'malo', 'sí', 'no', 'yo', 'tú']
+    de_words = ['was', 'wie', 'wo', 'wann', 'warum', 'ist', 'sind', 'haben']
+    es_words = ['qué', 'cómo', 'dónde', 'cuándo', 'por qué', 'es', 'son']
     de_count = sum(1 for word in de_words if word in text_lower)
     es_count = sum(1 for word in es_words if word in text_lower)
     return 'de' if de_count > es_count else 'es'
 
 # ============================================================================
-# GEMINI AI CONFIGURATION
+# GEMINI AI
 # ============================================================================
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -422,41 +360,39 @@ safety_settings = [
 ]
 
 SYSTEM_INSTRUCTIONS = {
-    'es': """Eres PIPILA, el asistente financiero inteligente del equipo de Oscar Casco.
+    'es': """Eres PIPILA, asistente del equipo de Oscar Casco.
 
-REGLAS IMPORTANTES:
-1. Responde SIEMPRE en español
-2. Sé profesional, claro y amigable
-3. Respuestas concisas (máximo 250 palabras)
-4. Si tienes documentos, cítalos: "Según [documento]..."
-5. Si no tienes información, admítelo claramente
-6. Usa emojis moderadamente para hacer el texto más legible
+INSTRUCCIONES:
+- Responde en español, profesional y directo
+- Máximo 200 palabras
+- Cita documentos cuando disponibles
+- Si no sabes algo, dilo claramente
+- Usa formato claro, sin emojis excesivos
 
-ÁREAS DE CONOCIMIENTO:
-- DVAG: Estructura, productos financieros, carrera
-- Generali: Seguros de vida, salud, hogar, auto
-- Badenia: Bausparkasse, ahorro vivienda
-- Advocard: Protección jurídica
+CONOCIMIENTO:
+- DVAG: productos financieros, estructura, carrera
+- Generali: seguros vida, salud, hogar, auto
+- Badenia: ahorro vivienda
+- Advocard: protección jurídica
 
-Siempre intenta ser útil y dar información práctica.""",
+Sé práctico y útil.""",
 
-    'de': """Du bist PIPILA, der intelligente Finanzassistent des Teams von Oscar Casco.
+    'de': """Du bist PIPILA, Assistent des Teams von Oscar Casco.
 
-WICHTIGE REGELN:
-1. Antworte IMMER auf Deutsch
-2. Sei professionell, klar und freundlich
-3. Kurze Antworten (maximal 250 Wörter)
-4. Wenn du Dokumente hast, zitiere sie: "Laut [Dokument]..."
-5. Wenn du keine Informationen hast, gib es klar zu
-6. Verwende Emojis moderat für bessere Lesbarkeit
+ANWEISUNGEN:
+- Antworte auf Deutsch, professionell und direkt
+- Maximal 200 Wörter
+- Zitiere Dokumente wenn verfügbar
+- Wenn du etwas nicht weißt, sag es klar
+- Klares Format, keine übermäßigen Emojis
 
-WISSENSBEREICHE:
-- DVAG: Struktur, Finanzprodukte, Karriere
+WISSEN:
+- DVAG: Finanzprodukte, Struktur, Karriere
 - Generali: Lebens-, Kranken-, Haus-, Autoversicherung
-- Badenia: Bausparkasse, Wohnungssparen
+- Badenia: Bausparen
 - Advocard: Rechtsschutz
 
-Versuche immer hilfreich zu sein und praktische Informationen zu geben."""
+Sei praktisch und hilfreich."""
 }
 
 model_text = genai.GenerativeModel(
@@ -465,7 +401,7 @@ model_text = genai.GenerativeModel(
     safety_settings=safety_settings
 )
 
-logger.info("✅ Gemini 2.5 Flash configured")
+logger.info("✅ Gemini configured")
 
 # ============================================================================
 # CHAT SESSIONS
@@ -496,7 +432,7 @@ def set_user_language(user_id: int, lang: str):
     clear_chat_session(user_id)
 
 # ============================================================================
-# AI RESPONSE GENERATION
+# AI RESPONSE
 # ============================================================================
 async def generate_response(query: str, user_id: int = None, context_docs: List[Dict] = None) -> str:
     try:
@@ -505,43 +441,27 @@ async def generate_response(query: str, user_id: int = None, context_docs: List[
         
         if context_docs:
             context_text = "\n\n".join([
-                f"📄 [{doc['source']}]:\n{doc['text'][:600]}" 
+                f"[{doc['source']}]: {doc['text'][:500]}" 
                 for doc in context_docs
             ])
-            if lang == 'es':
-                prompt = f"""DOCUMENTOS RELEVANTES:
-{context_text}
-
-PREGUNTA DEL USUARIO: {query}
-
-Responde basándote en los documentos. Cita las fuentes. Sé conciso y útil."""
-            else:
-                prompt = f"""RELEVANTE DOKUMENTE:
-{context_text}
-
-BENUTZERFRAGE: {query}
-
-Antworte basierend auf den Dokumenten. Zitiere die Quellen. Sei kurz und hilfreich."""
+            prompt = f"""DOCUMENTOS:\n{context_text}\n\nPREGUNTA: {query}\n\nResponde basándote en los documentos."""
         else:
-            if lang == 'es':
-                prompt = f"PREGUNTA: {query}\n\nNo tengo documentos específicos. Responde con tu conocimiento general sobre DVAG, Generali, Badenia, Advocard."
-            else:
-                prompt = f"FRAGE: {query}\n\nKeine spezifischen Dokumente. Antworte mit deinem allgemeinen Wissen über DVAG, Generali, Badenia, Advocard."
+            prompt = query
         
         for attempt in range(3):
             try:
                 response = chat.send_message(prompt)
                 return response.text
             except Exception as e:
-                logger.error(f"Gemini attempt {attempt + 1} failed: {e}")
+                logger.error(f"Gemini error: {e}")
                 await asyncio.sleep(1)
         
         return get_text(lang, 'error', error="AI no disponible")
         
     except Exception as e:
-        logger.error(f"Generate response error: {e}")
+        logger.error(f"Response error: {e}")
         lang = get_user_language(user_id) if user_id else 'es'
-        return get_text(lang, 'error', error=str(e)[:50])
+        return get_text(lang, 'error', error=str(e)[:30])
 
 async def process_file(file_bytes: bytes, filename: str, query: str = "", user_id: int = None) -> str:
     try:
@@ -563,39 +483,21 @@ async def process_file(file_bytes: bytes, filename: str, query: str = "", user_i
         os.remove(temp_path)
         
         if not text or len(text) < 10:
-            return get_text(lang, 'file_error', error="No se pudo extraer texto")
+            return get_text(lang, 'file_error')
         
         chat = get_chat_session(user_id, lang)
-        
-        if lang == 'es':
-            prompt = f"""DOCUMENTO: {filename}
-
-CONTENIDO:
-{text[:3000]}
-
-{f'PREGUNTA ESPECÍFICA: {query}' if query else 'Analiza y resume el contenido principal.'}
-
-Proporciona un análisis útil y conciso."""
-        else:
-            prompt = f"""DOKUMENT: {filename}
-
-INHALT:
-{text[:3000]}
-
-{f'SPEZIFISCHE FRAGE: {query}' if query else 'Analysiere und fasse den Hauptinhalt zusammen.'}
-
-Gib eine hilfreiche und kurze Analyse."""
+        prompt = f"DOCUMENTO: {filename}\n\n{text[:3000]}\n\n{query if query else 'Resume el contenido.'}"
         
         response = chat.send_message(prompt)
         return response.text
         
     except Exception as e:
-        logger.error(f"Process file error: {e}")
+        logger.error(f"File error: {e}")
         lang = get_user_language(user_id) if user_id else 'es'
-        return get_text(lang, 'file_error', error=str(e)[:50])
+        return get_text(lang, 'file_error')
 
 # ============================================================================
-# CHROMADB - RAG SYSTEM
+# CHROMADB
 # ============================================================================
 chroma_client = None
 collection = None
@@ -603,34 +505,26 @@ collection = None
 try:
     chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
     collection = chroma_client.get_or_create_collection(name="pipila_documents")
-    logger.info(f"✅ ChromaDB: {collection.count()} chunks loaded")
+    logger.info(f"✅ ChromaDB: {collection.count()} chunks")
 except Exception as e:
-    logger.warning(f"⚠️ ChromaDB not ready: {e}")
+    logger.warning(f"⚠️ ChromaDB: {e}")
 
 def extract_text_from_pdf(file_path: str) -> str:
     try:
         with open(file_path, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
-            text = ""
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-            return text
-    except Exception as e:
-        logger.error(f"PDF extraction error: {e}")
+            return "".join([p.extract_text() for p in reader.pages if p.extract_text()])
+    except:
         return ""
 
 def extract_text_from_docx(file_path: str) -> str:
     try:
         doc = docx.Document(file_path)
         return "\n".join([p.text for p in doc.paragraphs if p.text])
-    except Exception as e:
-        logger.error(f"DOCX extraction error: {e}")
+    except:
         return ""
 
 def search_knowledge(query: str, n_results: int = 5) -> List[Dict]:
-    """Search in ChromaDB knowledge base"""
     if not collection:
         return []
     try:
@@ -683,7 +577,7 @@ if DATABASE_URL:
         Session = sessionmaker(bind=engine)
         logger.info("✅ PostgreSQL connected")
     except Exception as e:
-        logger.warning(f"⚠️ Database error: {e}")
+        logger.warning(f"⚠️ Database: {e}")
         engine = None
 
 # ============================================================================
@@ -808,25 +702,47 @@ class DataStorage:
 storage = DataStorage()
 
 # ============================================================================
-# HELPER FUNCTIONS
+# KEYBOARDS
+# ============================================================================
+def get_main_keyboard(lang: str = 'es') -> ReplyKeyboardMarkup:
+    kb = TRANSLATIONS[lang]['keyboard']
+    keyboard = [
+        [KeyboardButton(kb['products']), KeyboardButton(kb['clients'])],
+        [KeyboardButton(kb['templates']), KeyboardButton(kb['team'])],
+        [KeyboardButton(kb['lang']), KeyboardButton(kb['reset'])]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_products_keyboard(lang: str = 'es') -> ReplyKeyboardMarkup:
+    kb = TRANSLATIONS[lang]['products_keyboard']
+    keyboard = [
+        [KeyboardButton(kb['dvag']), KeyboardButton(kb['generali'])],
+        [KeyboardButton(kb['badenia']), KeyboardButton(kb['advocard'])],
+        [KeyboardButton(kb['back'])]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_clients_keyboard(lang: str = 'es') -> ReplyKeyboardMarkup:
+    kb = TRANSLATIONS[lang]['clients_keyboard']
+    keyboard = [
+        [KeyboardButton(kb['familia'])],
+        [KeyboardButton(kb['autonomo'])],
+        [KeyboardButton(kb['empresa'])],
+        [KeyboardButton(kb['back'])]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# ============================================================================
+# HELPERS
 # ============================================================================
 def identify_creator(user):
     global CREATOR_ID
     if user.username == CREATOR_USERNAME and CREATOR_ID is None:
         CREATOR_ID = user.id
-        logger.info(f"✅ Creator identified: @{user.username} (ID: {user.id})")
+        logger.info(f"✅ Creator: @{user.username} ({user.id})")
 
 def is_creator(user_id: int) -> bool:
     return user_id == CREATOR_ID
-
-def get_keyboard(lang: str = 'es') -> ReplyKeyboardMarkup:
-    kb = TRANSLATIONS[lang]['keyboard']
-    keyboard = [
-        [KeyboardButton(kb['ask']), KeyboardButton(kb['docs'])],
-        [KeyboardButton(kb['stats']), KeyboardButton(kb['team'])],
-        [KeyboardButton(kb['info']), KeyboardButton(kb['help'])]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ============================================================================
 # COMMAND HANDLERS
@@ -844,135 +760,298 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'language': lang
     })
     
-    text = get_text(lang, 'welcome', name=user.first_name or 'Usuario', creator=CREATOR_USERNAME)
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=get_keyboard(lang))
+    text = get_text(lang, 'welcome', name=user.first_name or 'Usuario')
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=get_main_keyboard(lang))
 
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    text = get_text(lang, 'help')
-    
-    if is_creator(user_id):
-        admin_help = "\n\n⚙️ <b>ADMIN:</b>\n/grant_team [ID o @usuario]" if lang == 'es' else "\n\n⚙️ <b>ADMIN:</b>\n/grant_team [ID oder @benutzer]"
-        text += admin_help
-    
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command for user management only"""
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es"),
-            InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")
-        ]
-    ])
-    
-    await update.message.reply_text(
-        get_text(lang, 'choose_lang'),
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard
-    )
-
-async def callback_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    new_lang = query.data.split('_')[1]
-    
-    set_user_language(user_id, new_lang)
-    storage.update_user(user_id, {'language': new_lang})
-    
-    await query.edit_message_text(
-        get_text(new_lang, 'lang_changed'),
-        parse_mode=ParseMode.HTML
-    )
-    await query.message.reply_text("✅", reply_markup=get_keyboard(new_lang))
-
-async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    
-    if not context.args:
-        await update.message.reply_text(get_text(lang, 'no_query'), parse_mode=ParseMode.HTML)
+    if not is_creator(user_id):
+        await update.message.reply_text(get_text(lang, 'admin_only'))
         return
     
-    query = ' '.join(context.args)
-    await update.message.chat.send_action("typing")
-    
-    # Show thinking message
-    thinking_msg = await update.message.reply_text(get_text(lang, 'thinking'))
-    
-    try:
-        # Search in knowledge base
-        context_docs = search_knowledge(query)
-        
-        # Generate response
-        response = await generate_response(query, user_id=user_id, context_docs=context_docs)
-        
-        # Save query
-        storage.save_query(user_id, query, response)
-        user = storage.get_user(user_id)
-        storage.update_user(user_id, {'query_count': user.get('query_count', 0) + 1})
-        
-        # Delete thinking message and send response
-        await thinking_msg.delete()
-        
-        search_label = "🔍 <b>Búsqueda:</b>" if lang == 'es' else "🔍 <b>Suche:</b>"
-        await update.message.reply_text(
-            f"{search_label} {query}\n\n{response}",
-            parse_mode=ParseMode.HTML
-        )
-        
-    except Exception as e:
-        await thinking_msg.delete()
-        logger.error(f"Search error: {e}")
-        await update.message.reply_text(get_text(lang, 'error', error=str(e)[:50]), parse_mode=ParseMode.HTML)
+    if not context.args:
+        usage = """<b>⚙️ COMANDOS DE ADMINISTRACIÓN</b>
 
-async def cmd_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    count = collection.count() if collection else 0
-    await update.message.reply_text(get_text(lang, 'docs', count=count), parse_mode=ParseMode.HTML)
+<b>Gestión de usuarios:</b>
+/admin add [user_id] - Añadir por ID
+/admin add @username - Añadir por username
 
-async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    user = storage.get_user(user_id)
-    
-    uptime = datetime.now() - BOT_START_TIME
-    uptime_str = f"{uptime.days}d {uptime.seconds//3600}h {(uptime.seconds%3600)//60}m"
-    
-    doc_count = collection.count() if collection else 0
-    
-    if lang == 'es':
-        access = "✅ Miembro del equipo" if storage.is_team_member(user_id) else "⏳ Sin acceso completo"
-    else:
-        access = "✅ Teammitglied" if storage.is_team_member(user_id) else "⏳ Kein voller Zugang"
-    
-    db_status = "PostgreSQL ✅" if engine else "JSON (local)"
-    
-    text = get_text(lang, 'stats',
-        name=user.get('first_name', 'N/A'),
-        username=user.get('username', 'N/A'),
-        access=access,
-        queries=user.get('query_count', 0),
-        docs=doc_count,
-        uptime=uptime_str,
-        db=db_status,
-        version=BOT_VERSION
-    )
-    
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+<b>Información del sistema:</b>
+/docs - Estadísticas base de datos
+/stats - Estadísticas detalladas equipo
 
-async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
+<b>Ejemplos:</b>
+<code>/admin add 123456789</code>
+<code>/admin add @OscarCasco</code>""" if lang == 'es' else """<b>⚙️ ADMINISTRATORBEFEHLE</b>
+
+<b>Benutzerverwaltung:</b>
+/admin add [user_id] - Per ID hinzufügen
+/admin add @username - Per Username hinzufügen
+
+<b>Systeminformation:</b>
+/docs - Datenbankstatistiken
+/stats - Detaillierte Team-Statistiken
+
+<b>Beispiele:</b>
+<code>/admin add 123456789</code>
+<code>/admin add @OscarCasco</code>"""
+        await update.message.reply_text(usage, parse_mode=ParseMode.HTML)
+        return
+    
+    cmd = context.args[0].lower()
+    
+    if cmd == 'add' and len(context.args) > 1:
+        target = context.args[1]
+        if target.startswith('@'):
+            username = target[1:]
+            if engine:
+                session = Session()
+                try:
+                    user = session.query(User).filter(User.username.ilike(username)).first()
+                    if user:
+                        user.is_team = True
+                        session.commit()
+                        msg = f"✅ @{username} añadido al equipo" if lang == 'es' else f"✅ @{username} zum Team hinzugefügt"
+                        await update.message.reply_text(msg)
+                    else:
+                        msg = f"⚠️ @{username} no encontrado. Debe usar /start primero." if lang == 'es' else f"⚠️ @{username} nicht gefunden. Muss /start verwenden."
+                        await update.message.reply_text(msg)
+                finally:
+                    session.close()
+            else:
+                found = False
+                for uid, udata in storage.users.items():
+                    if udata.get('username', '').lower() == username.lower():
+                        storage.update_user(uid, {'is_team': True})
+                        msg = f"✅ @{username} añadido al equipo" if lang == 'es' else f"✅ @{username} zum Team hinzugefügt"
+                        await update.message.reply_text(msg)
+                        found = True
+                        break
+                if not found:
+                    msg = f"⚠️ @{username} no encontrado" if lang == 'es' else f"⚠️ @{username} nicht gefunden"
+                    await update.message.reply_text(msg)
+        else:
+            try:
+                target_id = int(target)
+                storage.update_user(target_id, {'is_team': True})
+                await update.message.reply_text(get_text(lang, 'user_added', id=target_id), parse_mode=ParseMode.HTML)
+            except ValueError:
+                msg = "❌ ID inválido" if lang == 'es' else "❌ Ungültige ID"
+                await update.message.reply_text(msg)
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Help command - available for all team members"""
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     
     if not storage.is_team_member(user_id):
-        await update.message.reply_text(get_text(lang, 'team_only'), parse_mode=ParseMode.HTML)
+        await update.message.reply_text(get_text(lang, 'no_access'))
+        return
+    
+    if lang == 'es':
+        help_text = """<b>📖 COMANDOS DISPONIBLES</b>
+
+<b>Básicos:</b>
+/start - Reiniciar bot
+/help - Esta ayuda
+/lang - Cambiar idioma
+/reset - Limpiar conversación
+
+<b>Información:</b>
+/team - Ver miembros del equipo
+
+<b>💡 USO DEL BOT:</b>
+
+<b>1. Menú principal:</b>
+Usa los botones para navegar:
+• 🏢 Productos - DVAG, Generali, Badenia, Advocard
+• 👥 Clientes - Familias, Autónomos, Empresarios
+• 📋 Consultas - Ejemplos de preguntas
+• 👔 Equipo - Ver miembros
+• 🌍 Idioma - Cambiar ES/DE
+• 🔄 Reiniciar - Limpiar chat
+
+<b>2. Preguntas directas:</b>
+Escribe tu pregunta directamente:
+"¿Cuánto cuesta seguro de vida?"
+"¿Qué documentos necesita cliente nuevo?"
+"Diferencias entre seguros Generali"
+
+<b>3. Enviar documentos:</b>
+Envía PDF/DOCX/TXT y añade pregunta como caption.
+
+El bot buscará en la base de conocimiento (19,000+ fragmentos) y responderá con fuentes."""
+    else:
+        help_text = """<b>📖 VERFÜGBARE BEFEHLE</b>
+
+<b>Grundlegend:</b>
+/start - Bot neu starten
+/help - Diese Hilfe
+/lang - Sprache ändern
+/reset - Gespräch löschen
+
+<b>Information:</b>
+/team - Teammitglieder ansehen
+
+<b>💡 BOT-NUTZUNG:</b>
+
+<b>1. Hauptmenü:</b>
+Nutze die Buttons zur Navigation:
+• 🏢 Produkte - DVAG, Generali, Badenia, Advocard
+• 👥 Kunden - Familien, Selbständige, Unternehmer
+• 📋 Anfragen - Beispielfragen
+• 👔 Team - Mitglieder ansehen
+• 🌍 Sprache - ES/DE wechseln
+• 🔄 Reset - Chat löschen
+
+<b>2. Direkte Fragen:</b>
+Stelle deine Frage direkt:
+"Wie viel kostet Lebensversicherung?"
+"Welche Dokumente braucht Neukunde?"
+"Unterschiede zwischen Generali Versicherungen"
+
+<b>3. Dokumente senden:</b>
+Sende PDF/DOCX/TXT mit Frage als Caption.
+
+Der Bot sucht in der Wissensbasis (19.000+ Fragmente) und antwortet mit Quellen."""
+    
+    if is_creator(user_id):
+        admin_text = """
+
+<b>⚙️ ADMIN:</b>
+/admin add [ID/@user] - Usuario al equipo
+/admin stats - Estadísticas del bot
+/docs - Estadísticas base de datos
+/stats - Estadísticas detalladas""" if lang == 'es' else """
+
+<b>⚙️ ADMIN:</b>
+/admin add [ID/@user] - Benutzer zum Team
+/admin stats - Bot-Statistiken
+/docs - Datenbankstatistiken
+/stats - Detaillierte Statistiken"""
+        help_text += admin_text
+    
+    await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
+
+async def cmd_docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Docs command - available only for admin"""
+    user_id = update.effective_user.id
+    lang = get_user_language(user_id)
+    
+    if not is_creator(user_id):
+        await update.message.reply_text(get_text(lang, 'admin_only'))
+        return
+    
+    count = collection.count() if collection else 0
+    
+    if lang == 'es':
+        docs_text = f"""<b>📚 BASE DE CONOCIMIENTO</b>
+
+<b>Estadísticas:</b>
+• Fragmentos indexados: <b>{count:,}</b>
+• Estado: {'✅ Activa' if count > 0 else '❌ Vacía'}
+• Sistema: ChromaDB + RAG
+
+<b>Categorías disponibles:</b>
+🏢 DVAG - Productos financieros
+🛡️ Generali - Seguros completos
+🏠 Badenia - Ahorro vivienda
+⚖️ Advocard - Protección jurídica
+
+Los consultores pueden hacer preguntas y el bot buscará automáticamente en estos documentos."""
+    else:
+        docs_text = f"""<b>📚 WISSENSBASIS</b>
+
+<b>Statistiken:</b>
+• Indexierte Fragmente: <b>{count:,}</b>
+• Status: {'✅ Aktiv' if count > 0 else '❌ Leer'}
+• System: ChromaDB + RAG
+
+<b>Verfügbare Kategorien:</b>
+🏢 DVAG - Finanzprodukte
+🛡️ Generali - Komplette Versicherungen
+🏠 Badenia - Bausparen
+⚖️ Advocard - Rechtsschutz
+
+Berater können Fragen stellen und der Bot sucht automatisch in diesen Dokumenten."""
+    
+    await update.message.reply_text(docs_text, parse_mode=ParseMode.HTML)
+
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Stats command - available only for admin"""
+    user_id = update.effective_user.id
+    lang = get_user_language(user_id)
+    
+    if not is_creator(user_id):
+        await update.message.reply_text(get_text(lang, 'admin_only'))
+        return
+    
+    team = storage.get_team_members()
+    uptime = datetime.now() - BOT_START_TIME
+    total_queries = sum(m.get('query_count', 0) for m in team)
+    doc_count = collection.count() if collection else 0
+    
+    if lang == 'es':
+        stats_text = f"""<b>📊 ESTADÍSTICAS DETALLADAS</b>
+
+<b>Sistema:</b>
+• Versión: {BOT_VERSION}
+• Uptime: {uptime.days}d {uptime.seconds//3600}h {(uptime.seconds%3600)//60}m
+• Base de datos: {'PostgreSQL ✅' if engine else 'JSON (local)'}
+• AI: Gemini 2.5 Flash ✅
+
+<b>Base de conocimiento:</b>
+• Chunks: {doc_count:,}
+• Sistema: ChromaDB + RAG
+• Estado: {'✅ Activa' if doc_count > 0 else '❌ Vacía'}
+
+<b>Equipo:</b>
+• Miembros: {len(team)}
+• Consultas totales: {total_queries:,}
+• Promedio: {(total_queries / len(team) if team else 0):.1f} por miembro
+
+<b>Top usuarios:</b>"""
+        
+        sorted_team = sorted(team, key=lambda x: x.get('query_count', 0), reverse=True)[:5]
+        for i, m in enumerate(sorted_team, 1):
+            stats_text += f"\n{i}. {m['first_name']} - {m.get('query_count', 0)} consultas"
+    else:
+        stats_text = f"""<b>📊 DETAILLIERTE STATISTIKEN</b>
+
+<b>System:</b>
+• Version: {BOT_VERSION}
+• Uptime: {uptime.days}d {uptime.seconds//3600}h {(uptime.seconds%3600)//60}m
+• Datenbank: {'PostgreSQL ✅' if engine else 'JSON (lokal)'}
+• AI: Gemini 2.5 Flash ✅
+
+<b>Wissensbasis:</b>
+• Chunks: {doc_count:,}
+• System: ChromaDB + RAG
+• Status: {'✅ Aktiv' if doc_count > 0 else '❌ Leer'}
+
+<b>Team:</b>
+• Mitglieder: {len(team)}
+• Gesamtanfragen: {total_queries:,}
+• Durchschnitt: {(total_queries / len(team) if team else 0):.1f} pro Mitglied
+
+<b>Top Benutzer:</b>"""
+        
+        sorted_team = sorted(team, key=lambda x: x.get('query_count', 0), reverse=True)[:5]
+        for i, m in enumerate(sorted_team, 1):
+            stats_text += f"\n{i}. {m['first_name']} - {m.get('query_count', 0)} Anfragen"
+    
+    await update.message.reply_text(stats_text, parse_mode=ParseMode.HTML)
+
+async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Team command - available for all team members"""
+    user_id = update.effective_user.id
+    lang = get_user_language(user_id)
+    
+    if not storage.is_team_member(user_id):
+        await update.message.reply_text(get_text(lang, 'no_access'))
         return
     
     team = storage.get_team_members()
@@ -982,88 +1061,67 @@ async def cmd_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(no_members)
         return
     
-    members_text = ""
-    for i, m in enumerate(team, 1):
-        name = m.get('first_name', 'N/A')
-        username = m.get('username', 'N/A')
-        queries = m.get('query_count', 0)
-        label = "consultas" if lang == 'es' else "Anfragen"
-        members_text += f"{i}. <b>{name}</b> (@{username})\n   📊 {queries} {label}\n\n"
-    
-    text = get_text(lang, 'team', count=len(team), members=members_text)
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-async def cmd_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    text = get_text(lang, 'info', version=BOT_VERSION)
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-
-async def cmd_grant_team(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    lang = get_user_language(user_id)
-    
-    if not is_creator(user_id):
-        await update.message.reply_text(get_text(lang, 'admin_only'))
-        return
-    
-    if not context.args:
-        usage = """❓ <b>Uso:</b>
-/grant_team [user_id]
-/grant_team @username
-
-<b>Ejemplos:</b>
-<code>/grant_team 123456789</code>
-<code>/grant_team @OscarCasco</code>""" if lang == 'es' else """❓ <b>Verwendung:</b>
-/grant_team [user_id]
-/grant_team @username
-
-<b>Beispiele:</b>
-<code>/grant_team 123456789</code>
-<code>/grant_team @OscarCasco</code>"""
-        await update.message.reply_text(usage, parse_mode=ParseMode.HTML)
-        return
-    
-    target = context.args[0]
-    
-    if target.startswith('@'):
-        username = target[1:]
-        if engine:
-            session = Session()
-            try:
-                user = session.query(User).filter(User.username.ilike(username)).first()
-                if user:
-                    user.is_team = True
-                    session.commit()
-                    msg = f"✅ @{username} añadido al equipo!" if lang == 'es' else f"✅ @{username} zum Team hinzugefügt!"
-                    await update.message.reply_text(msg)
-                else:
-                    msg = f"⚠️ @{username} no encontrado. Debe enviar /start primero." if lang == 'es' else f"⚠️ @{username} nicht gefunden. Muss zuerst /start senden."
-                    await update.message.reply_text(msg)
-            except Exception as e:
-                session.rollback()
-                await update.message.reply_text(f"❌ Error: {str(e)[:50]}")
-            finally:
-                session.close()
-        else:
-            found = False
-            for uid, udata in storage.users.items():
-                if udata.get('username', '').lower() == username.lower():
-                    storage.update_user(uid, {'is_team': True})
-                    await update.message.reply_text(f"✅ @{username} added!")
-                    found = True
-                    break
-            if not found:
-                await update.message.reply_text(f"⚠️ @{username} not found")
+    if lang == 'es':
+        members_text = f"<b>👔 EQUIPO OSCAR CASCO</b> ({len(team)} miembros)\n\n"
+        for i, m in enumerate(team, 1):
+            name = m.get('first_name', 'N/A')
+            username = m.get('username', 'N/A')
+            queries = m.get('query_count', 0)
+            members_text += f"{i}. <b>{name}</b> (@{username})\n   📊 {queries} consultas\n\n"
     else:
-        try:
-            target_id = int(target)
-            storage.update_user(target_id, {'is_team': True})
-            await update.message.reply_text(get_text(lang, 'user_added', id=target_id), parse_mode=ParseMode.HTML)
-        except ValueError:
-            await update.message.reply_text(get_text(lang, 'invalid_id'))
+        members_text = f"<b>👔 TEAM OSCAR CASCO</b> ({len(team)} Mitglieder)\n\n"
+        for i, m in enumerate(team, 1):
+            name = m.get('first_name', 'N/A')
+            username = m.get('username', 'N/A')
+            queries = m.get('query_count', 0)
+            members_text += f"{i}. <b>{name}</b> (@{username})\n   📊 {queries} Anfragen\n\n"
+    
+    await update.message.reply_text(members_text, parse_mode=ParseMode.HTML)
 
-async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Language selection for all team members"""
+    user_id = update.effective_user.id
+    lang = get_user_language(user_id)
+    
+    if not storage.is_team_member(user_id):
+        await update.message.reply_text(get_text(lang, 'no_access'))
+        return
+    
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🇪🇸 Español", callback_data="lang_es"),
+            InlineKeyboardButton("🇩🇪 Deutsch", callback_data="lang_de")
+        ]
+    ])
+    
+    current = "Español" if lang == 'es' else "Deutsch"
+    await update.message.reply_text(
+        f"<b>🌍 Idioma / Sprache</b>\n\nActual: {current}\n\nSelecciona:",
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard
+    )
+
+async def callback_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle language selection callback"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    new_lang = query.data.split('_')[1]
+    
+    set_user_language(user_id, new_lang)
+    storage.update_user(user_id, {'language': new_lang})
+    
+    lang_name = "Español 🇪🇸" if new_lang == 'es' else "Deutsch 🇩🇪"
+    await query.edit_message_text(
+        f"✅ Idioma cambiado / Sprache geändert: <b>{lang_name}</b>",
+        parse_mode=ParseMode.HTML
+    )
+    
+    # Send new keyboard in selected language
+    await query.message.reply_text("👍", reply_markup=get_main_keyboard(new_lang))
+
+async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     clear_chat_session(user_id)
@@ -1078,29 +1136,25 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     lang = get_user_language(user_id)
     
-    storage.update_user(user_id, {
-        'username': user.username or '',
-        'first_name': user.first_name or ''
-    })
+    if not storage.is_team_member(user_id):
+        await update.message.reply_text(get_text(lang, 'no_access'))
+        return
     
     document = update.message.document
     filename = document.file_name
     file_ext = Path(filename).suffix.lower()
     
     if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
-        msg = "⚠️ Solo acepto archivos PDF, DOCX o TXT" if lang == 'es' else "⚠️ Nur PDF, DOCX oder TXT Dateien"
-        await update.message.reply_text(msg)
+        await update.message.reply_text("⚠️ Solo PDF, DOCX o TXT")
         return
     
     caption = update.message.caption or ""
-    
     await update.message.chat.send_action("typing")
-    processing_msg = await update.message.reply_text(get_text(lang, 'processing_file'))
+    processing_msg = await update.message.reply_text(get_text(lang, 'thinking'))
     
     try:
         file = await context.bot.get_file(document.file_id)
         file_bytes = await file.download_as_bytearray()
-        
         response = await process_file(bytes(file_bytes), filename, query=caption, user_id=user_id)
         
         storage.save_query(user_id, f"[FILE: {filename}] {caption}", response)
@@ -1112,11 +1166,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             get_text(lang, 'file_processed', filename=filename, response=response),
             parse_mode=ParseMode.HTML
         )
-        
     except Exception as e:
         await processing_msg.delete()
         logger.error(f"Document error: {e}")
-        await update.message.reply_text(get_text(lang, 'file_error', error=str(e)[:50]))
+        await update.message.reply_text(get_text(lang, 'file_error'))
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1127,54 +1180,93 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = storage.get_user(user_id)
     current_lang = user_data.get('language', 'es')
     
+    if not storage.is_team_member(user_id):
+        await update.message.reply_text(get_text(current_lang, 'no_access'))
+        return
+    
     # Auto-detect language
     detected_lang = detect_language(text)
-    if detected_lang != current_lang and len(text) > 20:
+    if detected_lang != current_lang and len(text) > 15:
         set_user_language(user_id, detected_lang)
         storage.update_user(user_id, {'language': detected_lang})
         current_lang = detected_lang
     
-    storage.update_user(user_id, {
-        'username': user.username or '',
-        'first_name': user.first_name or ''
-    })
-    
     # Handle keyboard buttons
-    kb = TRANSLATIONS[current_lang]['keyboard']
+    kb_main = TRANSLATIONS[current_lang]['keyboard']
+    kb_products = TRANSLATIONS[current_lang]['products_keyboard']
+    kb_clients = TRANSLATIONS[current_lang]['clients_keyboard']
     
-    if text == kb['ask']:
-        await update.message.reply_text(get_text(current_lang, 'ask_question'))
+    # Main menu
+    if text == kb_main['products']:
+        await update.message.reply_text(
+            get_text(current_lang, 'main_menu_msg'),
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_products_keyboard(current_lang)
+        )
         return
-    elif text == kb['docs']:
-        await cmd_docs(update, context)
+    elif text == kb_main['clients']:
+        await update.message.reply_text(
+            get_text(current_lang, 'main_menu_msg'),
+            parse_mode=ParseMode.HTML,
+            reply_markup=get_clients_keyboard(current_lang)
+        )
         return
-    elif text == kb['stats']:
-        await cmd_stats(update, context)
+    elif text == kb_main['templates']:
+        await update.message.reply_text(
+            get_text(current_lang, 'templates_msg'),
+            parse_mode=ParseMode.HTML
+        )
         return
-    elif text == kb['team']:
+    elif text == kb_main['team']:
         await cmd_team(update, context)
         return
-    elif text == kb['info']:
-        await cmd_info(update, context)
+    elif text == kb_main['lang']:
+        await cmd_lang(update, context)
         return
-    elif text == kb['help']:
-        await cmd_help(update, context)
+    elif text == kb_main['reset']:
+        await cmd_reset(update, context)
         return
     
-    # Handle regular questions
+    # Products submenu
+    elif text == kb_products['dvag']:
+        await update.message.reply_text(get_text(current_lang, 'product_dvag'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_products['generali']:
+        await update.message.reply_text(get_text(current_lang, 'product_generali'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_products['badenia']:
+        await update.message.reply_text(get_text(current_lang, 'product_badenia'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_products['advocard']:
+        await update.message.reply_text(get_text(current_lang, 'product_advocard'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_products['back']:
+        await update.message.reply_text("📱", reply_markup=get_main_keyboard(current_lang))
+        return
+    
+    # Clients submenu
+    elif text == kb_clients['familia']:
+        await update.message.reply_text(get_text(current_lang, 'client_familia'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_clients['autonomo']:
+        await update.message.reply_text(get_text(current_lang, 'client_autonomo'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_clients['empresa']:
+        await update.message.reply_text(get_text(current_lang, 'client_empresa'), parse_mode=ParseMode.HTML)
+        return
+    elif text == kb_clients['back']:
+        await update.message.reply_text("📱", reply_markup=get_main_keyboard(current_lang))
+        return
+    
+    # Regular query
     if text and not text.startswith('/'):
         await update.message.chat.send_action("typing")
-        
         thinking_msg = await update.message.reply_text(get_text(current_lang, 'thinking'))
         
         try:
-            # Search knowledge base
             context_docs = search_knowledge(text)
-            
-            # Generate response
             response = await generate_response(text, user_id=user_id, context_docs=context_docs)
             
-            # Save query
             storage.save_query(user_id, text, response)
             user = storage.get_user(user_id)
             storage.update_user(user_id, {'query_count': user.get('query_count', 0) + 1})
@@ -1185,10 +1277,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await thinking_msg.delete()
             logger.error(f"Message error: {e}")
-            await update.message.reply_text(
-                get_text(current_lang, 'error', error=str(e)[:50]),
-                parse_mode=ParseMode.HTML
-            )
+            await update.message.reply_text(get_text(current_lang, 'error', error=str(e)[:30]))
 
 # ============================================================================
 # MAIN
@@ -1199,34 +1288,29 @@ def main():
     logger.info("=" * 60)
     
     chunks = collection.count() if collection else 0
-    
-    logger.info(f"📚 Knowledge base: {chunks} chunks")
-    logger.info(f"🗄️ Database: {'PostgreSQL' if engine else 'JSON'}")
-    logger.info(f"🤖 AI: Gemini 2.5 Flash")
+    logger.info(f"📚 Knowledge: {chunks} chunks")
+    logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
     
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Command handlers
+    # Commands
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("help", cmd_help))
-    application.add_handler(CommandHandler("lang", cmd_lang))
-    application.add_handler(CommandHandler("search", cmd_search))
     application.add_handler(CommandHandler("docs", cmd_docs))
     application.add_handler(CommandHandler("stats", cmd_stats))
     application.add_handler(CommandHandler("team", cmd_team))
-    application.add_handler(CommandHandler("info", cmd_info))
-    application.add_handler(CommandHandler("grant_team", cmd_grant_team))
-    application.add_handler(CommandHandler("clear", cmd_clear))
+    application.add_handler(CommandHandler("lang", cmd_lang))
+    application.add_handler(CommandHandler("admin", cmd_admin))
+    application.add_handler(CommandHandler("reset", cmd_reset))
     
-    # Callback handlers
+    # Callbacks
     application.add_handler(CallbackQueryHandler(callback_lang, pattern="^lang_"))
     
-    # Message handlers
+    # Messages
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    logger.info("=" * 60)
-    logger.info("✅ Bot started successfully!")
+    logger.info("✅ Bot started")
     logger.info("=" * 60)
     
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
