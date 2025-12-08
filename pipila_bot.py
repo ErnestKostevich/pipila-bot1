@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🤖 PIPILA - Asistente Financiero Oscar Casco
-VERSION: 8.3 - GRANT BY USERNAME
-✅ Uses pre-processed ChromaDB from GitHub Releases
-✅ Grant team access by ID or @username
-✅ Works on Python 3.13
-✅ Works on Render.com
+🤖 PIPILA v8.6 - PERSISTENT DISK SUPPORT
 """
 import os
 import sys
@@ -33,6 +28,7 @@ import docx
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 DATABASE_URL = os.getenv('DATABASE_URL')
+CHROMA_PATH = os.environ.get("CHROMA_PATH", "/var/data/chroma")
 CREATOR_USERNAME = "Ernest_Kostevich"
 CREATOR_ID = None
 BOT_START_TIME = datetime.now()
@@ -124,18 +120,18 @@ Escribe directamente - responderé
         'info': """🤖 <b>PIPILA</b>
 <i>Asistente Equipo Oscar Casco</i>
 
-<b>📖 Versión:</b> 8.3
+<b>📖 Versión:</b> 8.6
 <b>🧠 Capacidades:</b>
 • 💬 Chat inteligente con memoria
 • 📄 Procesamiento de archivos
 • 🌍 Multilenguaje (ES/DE)
-• 📚 RAG con ChromaDB pre-procesada
+• 📚 RAG con ChromaDB (Persistent Disk)
 
 <b>🤖 Tech:</b>
 • Gemini 2.5 Flash
-• ChromaDB + RAG (pre-procesada)
+• ChromaDB + RAG
 • PostgreSQL
-• GitHub Releases Storage
+• Render Persistent Disk
 
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Cliente:</b> Oscar Casco""",
@@ -236,18 +232,18 @@ Direkt schreiben - ich antworte
         'info': """🤖 <b>PIPILA</b>
 <i>Oscar Casco Team Assistent</i>
 
-<b>📖 Version:</b> 8.3
+<b>📖 Version:</b> 8.6
 <b>🧠 Fähigkeiten:</b>
 • 💬 Intelligenter Chat mit Gedächtnis
 • 📄 Dateiverarbeitung
 • 🌍 Mehrsprachig (ES/DE)
-• 📚 RAG mit ChromaDB (vorverarbeitet)
+• 📚 RAG mit ChromaDB (Persistent Disk)
 
 <b>🤖 Tech:</b>
 • Gemini 2.5 Flash
-• ChromaDB + RAG (vorverarbeitet)
+• ChromaDB + RAG
 • PostgreSQL
-• GitHub Releases Storage
+• Render Persistent Disk
 
 <b>👨‍💻 Dev:</b> @Ernest_Kostevich
 <b>👔 Kunde:</b> Oscar Casco""",
@@ -414,9 +410,10 @@ async def process_file(file_bytes: bytes, filename: str, query: str = "", user_i
         return get_text(lang, 'file_error', error=str(e)[:100])
 
 # ============================================================================
-# CHROMADB - RAG
+# CHROMADB - RAG (PERSISTENT DISK)
 # ============================================================================
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+logger.info(f"📁 ChromaDB path: {CHROMA_PATH}")
+chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 try:
     collection = chroma_client.get_or_create_collection(name="pipila_documents")
     logger.info(f"✅ ChromaDB OK: {collection.count()} chunks")
@@ -448,7 +445,6 @@ def extract_text_from_docx(file_path: str) -> str:
         return ""
 
 def search_rag(query: str, n_results: int = 3) -> List[Dict]:
-    """Search in ChromaDB RAG"""
     if not collection:
         return []
     try:
@@ -746,11 +742,7 @@ async def info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = get_text(lang, 'info')
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
-# ============================================================================
-# GRANT TEAM - SUPPORTS BOTH ID AND @USERNAME
-# ============================================================================
 async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Grant team access by ID or @username"""
     user_id = update.effective_user.id
     lang = get_user_language(user_id)
     
@@ -777,11 +769,8 @@ async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     target = context.args[0]
     
-    # Check if it's a username (starts with @)
     if target.startswith('@'):
-        username = target[1:]  # Remove @
-        
-        # Search for user in database by username
+        username = target[1:]
         if engine:
             session = Session()
             try:
@@ -792,49 +781,30 @@ async def grant_team_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     success_msg = f"✅ Usuario @{username} (ID: {user.id}) añadido al equipo!" if lang == 'es' else f"✅ Benutzer @{username} (ID: {user.id}) zum Team hinzugefügt!"
                     await update.message.reply_text(success_msg)
                 else:
-                    not_found = f"""⚠️ Usuario @{username} no encontrado en la base de datos.
-
-<b>Opciones:</b>
-1. Pide que el usuario envíe /start al bot primero
-2. Usa su ID numérico: /grant_team [ID]
-
-<i>Tip: Cuando el usuario escriba al bot, se registrará automáticamente.</i>""" if lang == 'es' else f"""⚠️ Benutzer @{username} nicht in der Datenbank gefunden.
-
-<b>Optionen:</b>
-1. Bitte den Benutzer zuerst /start an den Bot zu senden
-2. Verwende seine numerische ID: /grant_team [ID]
-
-<i>Tipp: Wenn der Benutzer dem Bot schreibt, wird er automatisch registriert.</i>"""
+                    not_found = f"⚠️ Usuario @{username} no encontrado. Pide que envíe /start primero." if lang == 'es' else f"⚠️ Benutzer @{username} nicht gefunden. Bitte ihn zuerst /start zu senden."
                     await update.message.reply_text(not_found, parse_mode=ParseMode.HTML)
             except Exception as e:
                 session.rollback()
-                logger.error(f"Grant team error: {e}")
                 await update.message.reply_text(get_text(lang, 'error', error=str(e)[:100]))
             finally:
                 session.close()
         else:
-            # JSON storage - search in local users
             found = False
             for uid, udata in storage.users.items():
                 if udata.get('username', '').lower() == username.lower():
                     storage.update_user(uid, {'is_team': True})
-                    success_msg = f"✅ Usuario @{username} (ID: {uid}) añadido al equipo!" if lang == 'es' else f"✅ Benutzer @{username} (ID: {uid}) zum Team hinzugefügt!"
-                    await update.message.reply_text(success_msg)
+                    await update.message.reply_text(f"✅ @{username} added!")
                     found = True
                     break
-            
             if not found:
-                not_found = f"⚠️ Usuario @{username} no encontrado. Pide que envíe /start primero." if lang == 'es' else f"⚠️ Benutzer @{username} nicht gefunden. Bitte ihn zuerst /start zu senden."
-                await update.message.reply_text(not_found)
+                await update.message.reply_text(f"⚠️ @{username} not found")
     else:
-        # It's an ID
         try:
             target_id = int(target)
             storage.update_user(target_id, {'is_team': True})
             await update.message.reply_text(get_text(lang, 'user_added', id=target_id))
         except ValueError:
-            invalid = "❌ ID inválido. Usa número o @username" if lang == 'es' else "❌ Ungültige ID. Verwende Nummer oder @username"
-            await update.message.reply_text(invalid)
+            await update.message.reply_text("❌ Invalid ID")
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -855,8 +825,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     filename = document.file_name
     file_ext = Path(filename).suffix.lower()
     if file_ext not in ['.pdf', '.docx', '.doc', '.txt']:
-        unsupported = "⚠️ Tipo no soportado. Envía PDF, DOCX, TXT" if lang == 'es' else "⚠️ Dateityp nicht unterstützt. Sende PDF, DOCX, TXT"
-        await update.message.reply_text(unsupported)
+        await update.message.reply_text("⚠️ PDF, DOCX, TXT only")
         return
     caption = update.message.caption or ""
     await update.message.chat.send_action("typing")
@@ -868,8 +837,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         storage.save_query(user_id, f"[FILE: {filename}] {caption}", response)
         user_data = storage.get_user(user_id)
         storage.update_user(user_id, {'query_count': user_data.get('query_count', 0) + 1})
-        result_text = get_text(lang, 'file_processed', filename=filename, response=response)
-        await update.message.reply_text(result_text, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(get_text(lang, 'file_processed', filename=filename, response=response), parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Document error: {e}")
         await update.message.reply_text(get_text(lang, 'file_error', error=str(e)[:100]))
@@ -923,22 +891,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # MAIN
 # ============================================================================
 def main():
-    """Main function"""
     logger.info("=" * 60)
-    logger.info("🚀 PIPILA v8.3 - Grant by Username")
+    logger.info("🚀 PIPILA v8.6 - PERSISTENT DISK")
     logger.info("=" * 60)
     
-    # Check ChromaDB
     chunks = collection.count() if collection else 0
     if chunks > 0:
-        logger.info(f"✅ Using pre-processed ChromaDB: {chunks} chunks")
+        logger.info(f"✅ ChromaDB: {chunks} chunks")
     else:
-        logger.warning("⚠️ ChromaDB empty - no documents available")
+        logger.warning("⚠️ ChromaDB empty")
     
-    # Build application
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Add handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("lang", lang_command))
@@ -958,10 +922,9 @@ def main():
     logger.info(f"🤖 AI: Gemini 2.5 Flash")
     logger.info(f"📊 Chunks: {chunks}")
     logger.info(f"🗄️ DB: {'PostgreSQL' if engine else 'JSON'}")
-    logger.info(f"🌍 Languages: ES, DE")
+    logger.info(f"📁 ChromaDB: {CHROMA_PATH}")
     logger.info("=" * 60)
     
-    # Start bot
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == '__main__':
