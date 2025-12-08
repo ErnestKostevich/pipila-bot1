@@ -1,4 +1,8 @@
 services:
+  - type: web
+    name: pipila-bot
+    env: python
+    plan: free
   - type: worker
     name: pipila-bot1
     runtime: python
@@ -18,4 +22,12 @@ services:
       - key: CHROMA_PATH
         value: /var/data/chroma
       - key: DATABASE_URL
+        fromDatabase:
+          name: pipila_db
+          property: connectionString
+
+databases:
+  - name: pipila_db
+    databaseName: pipila
+    user: pipila_user
         sync: false
