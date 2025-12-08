@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-🔽 PIPILA v8.6 - WITH PERSISTENT DISK SUPPORT
-Skips ChromaDB creation if already exists on disk
+🔽 PIPILA v8.5 FINAL - Document Processor
+Creates ChromaDB from documents on each deploy
 """
 
 import os
@@ -13,30 +13,12 @@ import shutil
 import time
 from pathlib import Path
 
-# ============================================================================
-# CONFIGURATION - PERSISTENT DISK
-# ============================================================================
-# Render Disk mount path (set in Render Dashboard)
-CHROMA_PATH = os.environ.get("CHROMA_PATH", "/var/data/chroma")
+# ChromaDB path (local folder, recreated each deploy)
+CHROMA_PATH = "./chroma_db"
 
 def log(msg):
-    print(f"[PROCESSOR] {msg}", flush=True)
+    print(f"[PIPILA] {msg}", flush=True)
     sys.stdout.flush()
-
-def chromadb_exists():
-    """Check if ChromaDB already exists on persistent disk"""
-    sqlite_file = os.path.join(CHROMA_PATH, "chroma.sqlite3")
-    return os.path.exists(sqlite_file)
-
-def get_chromadb_info():
-    """Get info about existing ChromaDB"""
-    try:
-        import chromadb
-        client = chromadb.PersistentClient(path=CHROMA_PATH)
-        collection = client.get_or_create_collection(name="pipila_documents")
-        return collection.count()
-    except:
-        return 0
 
 def download_documents():
     """Download documents ZIP from GitHub Releases"""
@@ -46,12 +28,12 @@ def download_documents():
     zip_path = "/tmp/documents.zip"
     extract_dir = "/tmp/documents"
     
-    log("=" * 70)
-    log("🔽 Downloading Documents from GitHub")
-    log("=" * 70)
+    log("=" * 60)
+    log("📥 DOWNLOADING DOCUMENTS")
+    log("=" * 60)
     
     # Clean old folders
-    for path in [zip_path, extract_dir]:
+    for path in [zip_path, extract_dir, CHROMA_PATH]:
         if os.path.exists(path):
             try:
                 if os.path.isdir(path):
@@ -61,7 +43,6 @@ def download_documents():
             except:
                 pass
     
-    log(f"📥 Downloading...")
     start_time = time.time()
     
     try:
@@ -85,24 +66,24 @@ def download_documents():
                     
                     mb = downloaded / (1024 * 1024)
                     if mb - last_report >= 100:
-                        log(f"   {mb:.0f} MB...")
+                        log(f"   ⬇️ {mb:.0f} MB downloaded...")
                         last_report = mb
         
         elapsed = time.time() - start_time
-        log(f"✅ Downloaded in {elapsed:.0f}s")
+        log(f"✅ Download complete: {elapsed:.0f}s")
         
     except Exception as e:
         log(f"❌ Download FAILED: {e}")
         sys.exit(1)
     
     # Extract
-    log("📦 Extracting...")
+    log("📦 Extracting archive...")
     try:
         os.makedirs(extract_dir, exist_ok=True)
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_dir)
         os.remove(zip_path)
-        log("✅ Extracted")
+        log("✅ Extraction complete")
     except Exception as e:
         log(f"❌ Extract FAILED: {e}")
         sys.exit(1)
@@ -204,25 +185,31 @@ def create_chromadb(documents_dir):
     import chromadb
     
     log("")
-    log("=" * 70)
-    log("🔧 Creating ChromaDB (BATCH MODE)")
-    log("=" * 70)
+    log("=" * 60)
+    log("🧠 CREATING KNOWLEDGE BASE")
+    log("=" * 60)
     
-    # Ensure directory exists
     os.makedirs(CHROMA_PATH, exist_ok=True)
     
     # Find documents
-    log("📂 Scanning...")
+    log("📂 Scanning documents...")
     doc_files = find_documents(documents_dir)
-    log(f"   Found {len(doc_files)} documents")
+    log(f"   Found: {len(doc_files)} files")
     
     if not doc_files:
         log("❌ No documents found!")
         sys.exit(1)
     
-    # PHASE 1: Extract all text
+    # Count by type
+    pdf_count = sum(1 for f in doc_files if f.lower().endswith('.pdf'))
+    docx_count = sum(1 for f in doc_files if f.lower().endswith('.docx'))
+    pptx_count = sum(1 for f in doc_files if f.lower().endswith('.pptx'))
+    txt_count = sum(1 for f in doc_files if f.lower().endswith('.txt'))
+    log(f"   📄 PDF: {pdf_count} | 📝 DOCX: {docx_count} | 📊 PPTX: {pptx_count} | 📃 TXT: {txt_count}")
+    
+    # PHASE 1: Extract text
     log("")
-    log("📄 PHASE 1: Extracting text...")
+    log("📖 PHASE 1: Reading documents...")
     start_time = time.time()
     
     all_chunks = []
@@ -235,11 +222,11 @@ def create_chromadb(documents_dir):
     for i, doc_path in enumerate(doc_files):
         filename = os.path.basename(doc_path)
         
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 20 == 0:
             elapsed = time.time() - start_time
             rate = (i + 1) / elapsed if elapsed > 0 else 0
             eta = (len(doc_files) - i - 1) / rate / 60 if rate > 0 else 0
-            log(f"   [{i+1}/{len(doc_files)}] {len(all_chunks)} chunks | ETA: {eta:.1f}min")
+            log(f"   [{i+1}/{len(doc_files)}] {len(all_chunks)} chunks | ETA: {eta:.1f} min")
         
         try:
             text = extract_text(doc_path)
@@ -264,15 +251,17 @@ def create_chromadb(documents_dir):
             
             processed += 1
             
-        except Exception as e:
+        except:
             skipped += 1
     
     phase1_time = time.time() - start_time
-    log(f"✅ Phase 1: {len(all_chunks)} chunks in {phase1_time:.1f}s")
+    log(f"✅ Phase 1 complete: {len(all_chunks)} chunks in {phase1_time:.0f}s")
+    log(f"   ✓ Processed: {processed} | ✗ Skipped: {skipped}")
     
-    # PHASE 2: Batch add to ChromaDB
+    # PHASE 2: Create embeddings
     log("")
-    log("🗄️ PHASE 2: Creating embeddings...")
+    log("🔮 PHASE 2: Creating AI embeddings...")
+    log("   ⏱️ This takes ~90-120 minutes...")
     
     phase2_start = time.time()
     
@@ -287,7 +276,7 @@ def create_chromadb(documents_dir):
         metadata={"hnsw:space": "cosine"}
     )
     
-    # Add in batches of 500
+    # Batch processing
     BATCH_SIZE = 500
     total_batches = (len(all_chunks) + BATCH_SIZE - 1) // BATCH_SIZE
     
@@ -299,7 +288,13 @@ def create_chromadb(documents_dir):
         batch_metas = all_metadatas[start_idx:end_idx]
         batch_ids = all_ids[start_idx:end_idx]
         
-        log(f"   Batch {batch_num + 1}/{total_batches}...")
+        elapsed = time.time() - phase2_start
+        if batch_num > 0:
+            rate = batch_num / elapsed
+            eta = (total_batches - batch_num) / rate / 60
+            log(f"   Batch {batch_num + 1}/{total_batches} | ETA: {eta:.0f} min")
+        else:
+            log(f"   Batch {batch_num + 1}/{total_batches}...")
         
         collection.add(
             documents=batch_chunks,
@@ -311,43 +306,27 @@ def create_chromadb(documents_dir):
     total_time = time.time() - start_time
     
     log("")
-    log("=" * 70)
-    log("✅ ChromaDB Created!")
-    log("=" * 70)
+    log("=" * 60)
+    log("✅ KNOWLEDGE BASE READY!")
+    log("=" * 60)
     log(f"📄 Documents: {processed}")
-    log(f"📊 Chunks: {len(all_chunks)}")
-    log(f"📁 Saved to: {CHROMA_PATH}")
-    log(f"⏱️ Time: {total_time/60:.1f} minutes")
-    log("=" * 70)
+    log(f"📊 Knowledge chunks: {len(all_chunks)}")
+    log(f"⏱️ Total time: {total_time/60:.0f} minutes")
+    log("=" * 60)
     
     return len(all_chunks)
 
 def main():
-    log("=" * 70)
-    log("🚀 PIPILA v8.6 - PERSISTENT DISK")
-    log("=" * 70)
-    log(f"📁 ChromaDB path: {CHROMA_PATH}")
     log("")
-    
-    # CHECK IF CHROMADB ALREADY EXISTS
-    if chromadb_exists():
-        chunks = get_chromadb_info()
-        log("=" * 70)
-        log("✅ ChromaDB ALREADY EXISTS on disk!")
-        log("=" * 70)
-        log(f"📊 Chunks: {chunks}")
-        log("⏱️ Skipping processing (saved ~100 minutes)")
-        log("=" * 70)
-        log("")
-        log("✅ Starting bot...")
-        return 0
-    
-    log("⚠️ ChromaDB not found - creating new...")
+    log("╔════════════════════════════════════════════════════════════╗")
+    log("║        🤖 PIPILA v8.5 FINAL - Starting Setup...           ║")
+    log("║        Financial Assistant for Oscar Casco Team            ║")
+    log("╚════════════════════════════════════════════════════════════╝")
     log("")
     
     total_start = time.time()
     
-    # Download documents
+    # Download
     documents_dir = download_documents()
     
     # Install pptx if needed
@@ -361,7 +340,8 @@ def main():
     total_chunks = create_chromadb(documents_dir)
     
     # Cleanup
-    log("🧹 Cleaning up...")
+    log("")
+    log("🧹 Cleaning temporary files...")
     try:
         shutil.rmtree(documents_dir)
     except:
@@ -370,15 +350,15 @@ def main():
     total_time = time.time() - total_start
     
     log("")
-    log("=" * 70)
-    log("🎉 ALL DONE!")
-    log("=" * 70)
-    log(f"📊 ChromaDB: {total_chunks} chunks")
-    log(f"📁 Saved to: {CHROMA_PATH}")
-    log(f"⏱️ Total: {total_time/60:.1f} minutes")
-    log("=" * 70)
+    log("╔════════════════════════════════════════════════════════════╗")
+    log("║                    🎉 SETUP COMPLETE!                      ║")
+    log("╠════════════════════════════════════════════════════════════╣")
+    log(f"║  📊 Knowledge base: {total_chunks} chunks                      ║")
+    log(f"║  ⏱️  Setup time: {total_time/60:.0f} minutes                          ║")
+    log("╠════════════════════════════════════════════════════════════╣")
+    log("║              🚀 Starting Telegram Bot...                   ║")
+    log("╚════════════════════════════════════════════════════════════╝")
     log("")
-    log("✅ Starting bot...")
     
     return 0
 
@@ -386,10 +366,10 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        log("⚠️ Interrupted")
+        log("⚠️ Interrupted by user")
         sys.exit(1)
     except Exception as e:
-        log(f"💥 ERROR: {e}")
+        log(f"💥 FATAL ERROR: {e}")
         import traceback
         log(traceback.format_exc())
         sys.exit(1)
