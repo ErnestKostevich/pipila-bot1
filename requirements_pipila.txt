@@ -1,5 +1,12 @@
+# PIPILA v8.5 FINAL - Dependencies
+
+# Telegram Bot
 python-telegram-bot[job-queue]==21.5
+
+# AI - Gemini
 google-generativeai>=0.8.5
+
+# Database
 sqlalchemy==2.0.35
 psycopg2-binary==2.9.10
 
@@ -11,8 +18,8 @@ sentence-transformers==3.3.1
 PyPDF2==3.0.1
 python-docx==1.1.2
 python-pptx==1.0.2
+
+# Utils
 python-dotenv==1.0.1
 pycryptodome>=3.20.0
-
-# Image Processing (optional)
 Pillow>=10.0.0
